@@ -23,10 +23,11 @@ button{font:inherit;cursor:pointer;border:0}
 #s-inicio .fr{height:44vh;max-width:70vw;object-fit:contain;filter:drop-shadow(0 1.5vmin 2vmin #0005);animation:none;background:#ffffff55;border-radius:1vmin}
 #stage{position:relative;width:min(100vw,66.667vh);aspect-ratio:2/3;background:#fff;overflow:hidden}
 #win{position:absolute;left:5.1%;top:10.067%;width:89.7%;height:79.867%;overflow:hidden;background:#000}
-#winG{position:absolute;left:5.1%;top:10.067%;width:89.7%;height:79.867%;overflow:hidden;z-index:6;pointer-events:none}
+#winG,#winP{position:absolute;left:5.1%;top:10.067%;width:89.7%;height:79.867%;overflow:hidden;pointer-events:none}
+#winG{z-index:3}#winP{z-index:4}
 #ui{position:absolute;inset:0;z-index:7;pointer-events:none}
 #ui button{pointer-events:auto}
-#win canvas,#winG canvas{position:absolute;inset:0;width:100%;height:100%}
+#win canvas,#winG canvas,#winP canvas{position:absolute;inset:0;width:100%;height:100%}
 #frm{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:5}
 #msg{position:absolute;left:24%;right:2%;top:11%;font-size:clamp(16px,3.2vh,40px);font-weight:800;text-shadow:0 .4vmin 1.2vmin #000a;pointer-events:none}
 #msg2{position:absolute;left:0;right:0;top:15%;font-size:clamp(12px,1.8vh,22px);font-weight:700;text-shadow:0 .3vmin 1vmin #000a;pointer-events:none}
@@ -57,7 +58,7 @@ button{font:inherit;cursor:pointer;border:0}
 </div>
 
 <div class="screen" id="s-juego">
-  <div id="stage"><div id="win"><canvas id="cv"></canvas></div><img id="frm" src="frame.png" alt=""><div id="winG" class="winG"><canvas id="gl"></canvas></div><div id="ui">
+  <div id="stage"><div id="win"><canvas id="cv"></canvas></div><img id="frm" src="frame.png" alt=""><div id="winG"><canvas id="gl"></canvas></div><div id="winP"><canvas id="pc"></canvas></div><div id="ui">
     <div id="msg"></div><div id="msg2"></div><button id="shoot" class="big" style="display:none;position:absolute;bottom:11.5%;left:32%;transform:translateX(-50%);font-size:clamp(18px,3.4vmin,36px);padding:1.6vmin 5vmin;white-space:nowrap">Tomar la foto ya</button><div id="cnt"></div><div id="flash"></div></div></div>
 </div>
 
@@ -87,6 +88,8 @@ const vid=document.createElement('video');vid.playsInline=true;vid.muted=true;
 const cv=$('cv'),cx=cv.getContext('2d');
 let stream=null,state='inicio',timers=[],W=897,H=1198;
 const FR=new Image();FR.src='frame.png';
+const pc=document.getElementById('pc'),pcx=pc.getContext('2d');
+let hasMask=0;
 let vdw=0,vdh=0,vox=0,voy=0;
 function fitVid(){const vw=vid.videoWidth,vh=vid.videoHeight;if(!vw)return;const k=Math.max(W/vw,H/vh);vdw=vw*k;vdh=vh*k;vox=(W-vdw)/2;voy=(H-vdh)/2}
 const toStage=(lx,ly)=>({x:W-(vox+lx*vdw),y:voy+ly*vdh});
@@ -161,8 +164,9 @@ let pose=null,poseBusy=false;
 function initPose(){
   try{
     pose=new Pose({locateFile:f=>'vendor/pose/'+f});
-    pose.setOptions({modelComplexity:0,smoothLandmarks:true,minDetectionConfidence:.5,minTrackingConfidence:.5});
+    pose.setOptions({modelComplexity:0,smoothLandmarks:true,enableSegmentation:true,smoothSegmentation:true,minDetectionConfidence:.5,minTrackingConfidence:.5});
     pose.onResults(r=>{
+      if(r.segmentationMask)personLayer(r.segmentationMask,r.image||vid);
       const L=r.poseLandmarks;if(!L){seenFrames=0;return}
       const a=L[11],b=L[12];if(!a||!b||a.visibility<.5||b.visibility<.5){seenFrames=0;return}
       const pa=toStage(a.x,a.y),pb=toStage(b.x,b.y),xa=pa.x,xb=pb.x,ya=pa.y,yb=pb.y;
@@ -172,6 +176,11 @@ function initPose(){
     });
   }catch(e){console.warn('pose',e);pose=null}
 }
+function personLayer(mask,img){
+  pcx.save();pcx.clearRect(0,0,W,H);pcx.translate(W,0);pcx.scale(-1,1);
+  const x=W-vox-vdw;
+  pcx.drawImage(mask,x,voy,vdw,vdh);pcx.globalCompositeOperation='source-in';pcx.drawImage(img,x,voy,vdw,vdh);
+  pcx.restore();hasMask=performance.now()}
 function feed({sl,sr,wr}){
   const sw=Math.max(40,sr.x-sl.x);
   const n={slx:sl.x,sly:sl.y,srx:sr.x,sry:sr.y,sw};
@@ -187,7 +196,7 @@ function trackLoop(){
   setTimeout(trackLoop,66);
 }
 function simStep(){const t=(performance.now()-t0)/1000;
-  const cxp=W*(.34+.06*Math.sin(t*.6)),y=H*.5,sw=W*.3;
+  const cxp=W*(.5+.04*Math.sin(t*.6)),y=H*.5,sw=W*.3;
   const up=Math.sin(t*.8)>-.2;
   feed({sl:{x:cxp-sw/2,y},sr:{x:cxp+sw/2,y},wr:[{x:cxp+sw*.75,y:up?y-sw*.8:y+sw*1.6,v:1}]})}
 
@@ -217,10 +226,11 @@ const MSGS={abrazo:'¡Un abrazo en familia! 🤗',choca5:'¡Choca esos cinco! �
 function startSeq(){if(Q.get('seq')){seq=Q.get('seq').split(',');return}seq=['abrazo',...['choca5','beso','baile','flex','saludo','giro'].sort(()=>Math.random()-.5).slice(0,4)]}
 let t0=0,lastT=0,jx=0,vx=0,fallback=false,counting=false,yaw=0;
 const WALKS=1.6, clamp=(x,a,b)=>Math.max(a,Math.min(b,x)), lerp=(a,b,t)=>a+(b-a)*t, sstep=u=>u*u*(3-2*u);
+let curSide=-1;
 function placeFor(p){
   const feetY=H*.97;
   const roomR=W-p.srx, roomL=p.slx;
-  let side=1; if(roomR<roomL*.9&&roomR<W*.28)side=-1;
+  let side=curSide; if(side===-1&&roomL<W*.2&&roomR>roomL*1.4)side=1; else if(side===1&&roomR<W*.2&&roomL>roomR*1.4)side=-1; curSide=side;
   const tgt=side===1?{x:p.srx,y:p.sry-p.sw*.12}:{x:p.slx,y:p.sly-p.sw*.12};
   let sc=(feetY-tgt.y)/SH_Y*.95; sc=clamp(sc,H*.2/UNITS,H*.72/UNITS);
   const room=side===1?(W*.985-tgt.x):(tgt.x-W*.015);
@@ -268,7 +278,7 @@ function frame(now){
   const have=seen||fallback;
   const T=have?placeFor(person):{side:1,tgt:{x:W*.5,y:H*.5},sc:H*.82/UNITS,feetY:H*.97,jxT:W+H*.4};
   const sc=T.sc,side=T.side;
-  if(jx===0)jx=W+H*.5;
+  if(jx===0)jx=side===1?-H*.5:W+H*.5;
   const maxV=W*.28,want=(T.jxT-jx)*3;
   vx+=(clamp(want,-maxV,maxV)-vx)*Math.min(1,dt*6);jx+=vx*dt;
   const speed=Math.abs(vx)/maxV,walking=speed>.12;
@@ -348,12 +358,13 @@ function frame(now){
   if(DBG)$('dbg').textContent=`seen=${!!seen} fb=${fallback} act=${act} u=${u.toFixed(2)} sc=${sc.toFixed(0)}`;
 }
 let seqIdxShown=-1;
-function drawDummy(){ if(!person)return;const p=person;cx.save();cx.fillStyle='#3b4a63';
-  cx.beginPath();cx.roundRect(p.slx-p.sw*.1,p.sly,p.sw*1.2,H,p.sw*.3);cx.fill();
-  cx.fillStyle='#d9b08c';cx.beginPath();cx.arc((p.slx+p.srx)/2,p.sly-p.sw*.62,p.sw*.42,0,7);cx.fill();cx.restore()}
+function drawDummy(){ pcx.clearRect(0,0,W,H);if(!person)return;const p=person;
+  for(const g of[cx,pcx]){g.save();g.fillStyle='#3b4a63';
+  g.beginPath();g.roundRect(p.slx-p.sw*.1,p.sly,p.sw*1.2,H,p.sw*.3);g.fill();
+  g.fillStyle='#d9b08c';g.beginPath();g.arc((p.slx+p.srx)/2,p.sly-p.sw*.62,p.sw*.42,0,7);g.fill();g.restore()}}
 
 function resize(){
-  cv.width=W;cv.height=H;renderer.setPixelRatio(1);renderer.setSize(W,H,false);
+  cv.width=W;cv.height=H;pc.width=W;pc.height=H;renderer.setPixelRatio(1);renderer.setSize(W,H,false);
   cam=new THREE.OrthographicCamera(0,W,H,0,-5000,5000);cam.position.z=1000;
   
 }
@@ -370,7 +381,7 @@ async function startGame(){
   vid.srcObject=stream;await vid.play();
   await new Promise(r=>{if(vid.videoWidth)r();else vid.onloadedmetadata=r});
   W=897;H=1198;resize();fitVid();
-  playStart=0;nearT=0;seqIdxShown=-1;burstDone=false;$('msg2').textContent='';$('shoot').style.display='none';person=null;seenFrames=0;lastSeen=0;fallback=false;counting=false;vx=0;jx=0;yaw=0;
+  playStart=0;nearT=0;seqIdxShown=-1;burstDone=false;$('msg2').textContent='';$('shoot').style.display='none';person=null;curSide=-1;jx=0;pcx.clearRect(0,0,W,H);seenFrames=0;lastSeen=0;fallback=false;counting=false;vx=0;jx=0;yaw=0;
   if(!pose&&!SIM)initPose();
   show('s-juego');state='juego';SFX.start();SFX.music(true);t0=performance.now();lastT=t0;
   $('msg').textContent='¡Párate frente a la cámara!';$('cnt').textContent='';
@@ -385,7 +396,7 @@ function count(n){
 async function snap(){
   const out=document.createElement('canvas');out.width=1000;out.height=1500;const c=out.getContext('2d');
   c.fillStyle='#fff';c.fillRect(0,0,1000,1500);
-  c.drawImage(cv,51,151,897,1198);c.drawImage(FR,0,0,1000,1500);renderer.render(scene,cam);c.drawImage($('gl'),51,151,897,1198);
+  c.drawImage(cv,51,151,897,1198);renderer.render(scene,cam);c.drawImage($('gl'),51,151,897,1198);c.drawImage(pc,51,151,897,1198);c.drawImage(FR,0,0,1000,1500);
   SFX.done();SFX.music(false);
   $('flash').style.transition='none';$('flash').style.opacity=1;
   requestAnimationFrame(()=>{$('flash').style.transition='opacity .45s';$('flash').style.opacity=0});
