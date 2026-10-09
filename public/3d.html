@@ -51,7 +51,7 @@ button{font:inherit;cursor:pointer;border:0}
 
 <div class="screen" id="s-juego">
   <div id="stage"><canvas id="cv"></canvas><canvas id="gl"></canvas>
-    <div id="msg"></div><div id="cnt"></div><div id="flash"></div></div>
+    <div id="msg"></div><button id="shoot" class="big" style="display:none;position:absolute;bottom:5vmin;left:50%;transform:translateX(-50%);font-size:clamp(18px,3.4vmin,36px);padding:1.6vmin 5vmin;white-space:nowrap">Tomar la foto ya</button><div id="cnt"></div><div id="flash"></div></div>
 </div>
 
 <div class="screen" id="s-res">
@@ -175,6 +175,7 @@ function simStep(){const t=(performance.now()-t0)/1000;
   feed({sl:{x:cxp-sw/2,y},sr:{x:cxp+sw/2,y}})}
 
 /* ---------- Juego ---------- */
+let playStart=0,jumpT0=-1e9,waveT0=-1e9,nextAuto=0;const PLAY=15;
 let t0=0,lastT=0,jx=0,vx=0,armW=0,hugHold=0,fallback=false,counting=false,yaw=0;
 const WALKS=1.6;
 function placeFor(p){
@@ -184,6 +185,9 @@ function placeFor(p){
   let side=1; if(roomR<roomL*.9&&roomR<W*.28)side=-1;
   const tgt=side===1?{x:p.srx,y:p.sry-p.sw*.12}:{x:p.slx,y:p.sly-p.sw*.12};
   let sc=(feetY-tgt.y)/SH_Y*.95; sc=Math.min(Math.max(sc,H*.2/UNITS),H*.98/UNITS);
+  // que la mascota quepa completa en cuadro
+  const room=side===1?(W*.985-tgt.x):(tgt.x-W*.015);
+  sc=Math.min(sc,room/3.4);
   const jxT=tgt.x+side*2.45*sc;
   return {side,tgt,sc,feetY,jxT};
 }
@@ -213,7 +217,10 @@ function frame(now){
   const yawT=walking&&armW<.5?faceMove:faceHug;
   yaw+=(yawT-yaw)*Math.min(1,dt*5);
   // pose
-  holder.position.set(jx,H-tgtInfo.feetY,0);holder.scale.setScalar(sc);
+  const jp=(now-jumpT0)/700, yOff=jp<1?Math.sin(Math.PI*jp)*.9:0;
+  const wp=(now-waveT0)/1800, env=wp<1?Math.min(1,Math.sin(Math.PI*wp)*2.2):0;
+  if(playStart&&!counting&&now>nextAuto){if(Math.random()<.5)jumpT0=now;else waveT0=now;nextAuto=now+3500+Math.random()*2500}
+  holder.position.set(jx,H-tgtInfo.feetY+yOff*sc,0);holder.scale.setScalar(sc);shadow.position.y=-yOff;
   rig.root.rotation.y=yaw;holder.updateMatrixWorld(true);
   const ph=el*(6+speed*4);
   if(!isGLB){
@@ -243,7 +250,8 @@ function frame(now){
         const a2=Math.atan2(dy+sy-eyy,dx+sx-ex);
         const ikUp=a1+Math.PI/2, ikFo=a2-a1;
         A.up.rotation.z=ikUp*armW;A.up.rotation.x=swing*(1-armW);A.fo.rotation.z=ikFo*armW;
-      }else{A.up.rotation.z=A.side*.08*(1-0);A.up.rotation.x=swing;A.fo.rotation.z=0}
+      }else if(A.side===tgtInfo.side&&env>0){A.up.rotation.z=A.side*2.5*env;A.up.rotation.x=0;A.fo.rotation.z=A.side*Math.sin(el*14)*.5*env}
+      else{A.up.rotation.z=A.side*.08;A.up.rotation.x=swing;A.fo.rotation.z=0}
     }
   }else if(mixer){
     mixer.update(dt);
@@ -251,7 +259,10 @@ function frame(now){
   }
   shadow.material.opacity=.28;
   // cuenta regresiva automática cuando el abrazo está listo
-  if(armW>.97&&!counting){hugHold+=dt;if(hugHold>.8){counting=true;count(3)}}else if(armW<.9)hugHold=0;
+  if(armW>.97&&!playStart&&!counting){hugHold+=dt;if(hugHold>.8){playStart=now;nextAuto=now+2500;$('shoot').style.display='block'}}
+  if(playStart&&!counting){const left=Math.ceil(PLAY-(now-playStart)/1000);
+    $('msg').textContent='¡Juega con la mascota! Foto en '+Math.max(left,0)+' s · toca la pantalla';
+    if(left<=0)shoot()}
   // render: 2D + 3D
   cx.fillStyle='#000';cx.fillRect(0,0,W,H);
   if(vid.videoWidth){cx.save();cx.translate(W,0);cx.scale(-1,1);cx.drawImage(vid,0,0,W,H);cx.restore()}
@@ -268,6 +279,7 @@ function resize(){
   cam=new THREE.OrthographicCamera(0,W,H,0,-5000,5000);cam.position.z=1000;
   const st=$('stage');st.style.aspectRatio=W+'/'+H;st.style.width='min(100vw,'+(100*W/H)+'vh)';
 }
+function shoot(){if(counting)return;counting=true;$('shoot').style.display='none';count(3)}
 function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('on',s.id===id))}
 function later(fn,ms){timers.push(setTimeout(fn,ms))}
 function clearTimers(){timers.forEach(clearTimeout);timers=[]}
@@ -279,7 +291,7 @@ async function startGame(){
   vid.srcObject=stream;await vid.play();
   await new Promise(r=>{if(vid.videoWidth)r();else vid.onloadedmetadata=r});
   W=vid.videoWidth;H=vid.videoHeight;resize();
-  person=null;seenFrames=0;lastSeen=0;fallback=false;counting=false;hugHold=0;armW=0;vx=0;jx=0;yaw=0;
+  playStart=0;$('shoot').style.display='none';person=null;seenFrames=0;lastSeen=0;fallback=false;counting=false;hugHold=0;armW=0;vx=0;jx=0;yaw=0;
   if(!pose&&!SIM)initPose();
   show('s-juego');state='juego';t0=performance.now();lastT=t0;
   $('msg').textContent='¡Párate frente a la cámara!';$('cnt').textContent='';
@@ -327,6 +339,8 @@ function resetTimer(){
 }
 function home(){clearTimers();stopCam();state='inicio';show('s-inicio')}
 $('start').onclick=startGame;
+$('shoot').onclick=e=>{e.stopPropagation();shoot()};
+$('stage').addEventListener('pointerdown',()=>{if(playStart&&!counting){jumpT0=performance.now();waveT0=performance.now()}});
 $('again').onclick=()=>{clearTimers();stopCam();state='inicio';startGame()};
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&state!=='inicio')home()});
 resize();requestAnimationFrame(frame);trackLoop();

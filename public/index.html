@@ -48,7 +48,7 @@ button{font:inherit;cursor:pointer;border:0}
 
 <div class="screen" id="s-juego">
   <canvas id="cv"></canvas>
-  <div id="msg"></div><div id="cnt"></div><div id="flash"></div>
+  <div id="msg"></div><button id="shoot" class="big" style="display:none;position:absolute;bottom:5vmin;left:50%;transform:translateX(-50%);font-size:clamp(18px,3.4vmin,36px);padding:1.6vmin 5vmin;white-space:nowrap">Tomar la foto ya</button><div id="cnt"></div><div id="flash"></div>
 </div>
 
 <div class="screen" id="s-res">
@@ -67,39 +67,50 @@ const $=id=>document.getElementById(id);
 const jag=new Image();jag.src='jaguar.png';
 const vid=document.createElement('video');vid.playsInline=true;vid.muted=true;
 const cv=$('cv'),cx=cv.getContext('2d');
-let stream=null,state='inicio',t0=0,raf=0,timers=[];
-const WALK=3200;           // ms de caminata
-const ease=p=>1-Math.pow(1-p,3);
+let stream=null,state='inicio',raf=0,timers=[];
 
 function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('on',s.id===id))}
 function later(fn,ms){timers.push(setTimeout(fn,ms))}
 function clearTimers(){timers.forEach(clearTimeout);timers=[]}
 
-// Dibuja video espejado + jaguar. walk: 0..1 progreso de la caminata
-function scene(c,W,H,walk,now){
+// Estado del jaguar 2D
+let jx=0,jtx=0,jvx=0,jumpT0=-1e9,playStart=0,counting=false,nextAuto=0,lastT=0,arrived=false;
+const PLAY=15;
+function scene(c,W,H,now,still){
   c.fillStyle='#000';c.fillRect(0,0,W,H);
   if(vid.videoWidth){c.save();c.translate(W,0);c.scale(-1,1);c.drawImage(vid,0,0,W,H);c.restore()}
   if(!jag.complete||!jag.naturalWidth)return;
   const jh=H*0.72,jw=jh*jag.naturalWidth/jag.naturalHeight;
-  const tx=W*0.72-jw/2, sx=W+jw*0.1;
-  const x=sx+(tx-sx)*ease(Math.min(1,walk));
-  const walking=walk<1, ph=now/1000;
+  const walking=!still&&Math.abs(jvx)>W*.03, ph=now/1000;
+  const jp=(now-jumpT0)/700, hop=!still&&jp<1?Math.sin(Math.PI*jp)*H*0.09:0;
   const bob=walking?Math.abs(Math.sin(ph*7))*H*0.025:Math.sin(ph*2)*H*0.004;
   const rot=walking?Math.sin(ph*7)*0.04:Math.sin(ph*1.5)*0.012;
-  const base=H*0.94;
+  const base=H*0.94, flip=(jtx-jx>W*.01||jvx>W*.03)?-1:1; // la imagen mira a la izquierda
   c.save();
-  c.fillStyle='rgba(0,0,0,.28)';c.beginPath();c.ellipse(x+jw*0.5,base,jw*0.34*(1-bob/(H*0.1)),H*0.022,0,0,7);c.fill();
-  c.translate(x+jw/2,base-bob);c.rotate(rot);
+  c.fillStyle='rgba(0,0,0,.28)';c.beginPath();c.ellipse(jx,base,jw*0.34*(1-(bob+hop)/(H*0.2)),H*0.022,0,0,7);c.fill();
+  c.translate(jx,base-bob-hop);c.rotate(rot);c.scale(flip,1);
   c.drawImage(jag,-jw/2,-jh,jw,jh);
   c.restore();
 }
 function loop(now){
-  if(state==='juego'||state==='cuenta'){
-    const w=Math.min(1,(now-t0)/WALK);
-    scene(cx,cv.width,cv.height,w,now);
-  }
   raf=requestAnimationFrame(loop);
+  if(state!=='juego'&&state!=='cuenta')return;
+  const dt=Math.min(.05,(now-lastT)/1000||.016);lastT=now;
+  const W=cv.width,H=cv.height;
+  const jw=H*0.72*jag.naturalWidth/jag.naturalHeight;
+  if(!jx){jx=W+jw*.6;jtx=W*.72}
+  const want=Math.max(-W*.3,Math.min(W*.3,(jtx-jx)*2.5));
+  jvx+=(want-jvx)*Math.min(1,dt*7);jx+=jvx*dt;
+  if(!arrived&&Math.abs(jtx-jx)<W*.02){arrived=true;playStart=now;nextAuto=now+2500;$('shoot').style.display='block'}
+  if(arrived&&!counting){
+    if(now>nextAuto){jumpT0=now;nextAuto=now+3500+Math.random()*2500}
+    const left=Math.ceil(PLAY-(now-playStart)/1000);
+    $('msg').textContent='¡Juega con el Jaguar! Foto en '+Math.max(left,0)+' s · toca la pantalla';
+    if(left<=0)shoot();
+  }
+  scene(cx,W,H,now,false);
 }
+function shoot(){if(counting)return;counting=true;$('shoot').style.display='none';count(3)}
 
 async function startGame(){
   $('err').hidden=true;
@@ -111,10 +122,9 @@ async function startGame(){
   vid.srcObject=stream;await vid.play();
   await new Promise(r=>{if(vid.videoWidth)r();else vid.onloadedmetadata=r});
   cv.width=vid.videoWidth;cv.height=vid.videoHeight;
-  show('s-juego');state='juego';t0=performance.now();
+  jx=0;jvx=0;arrived=false;counting=false;playStart=0;$('shoot').style.display='none';
+  show('s-juego');state='juego';lastT=performance.now();
   $('msg').textContent='¡Mira quién viene!';$('cnt').textContent='';
-  later(()=>{if(state==='juego')$('msg').textContent='¡Ponte a su lado y sonríe!'},WALK-300);
-  later(()=>count(3),WALK+900);
 }
 function count(n){
   if(state!=='juego'&&state!=='cuenta')return;
@@ -124,7 +134,7 @@ function count(n){
 }
 async function snap(){
   const out=document.createElement('canvas');out.width=cv.width;out.height=cv.height;
-  scene(out.getContext('2d'),out.width,out.height,1,performance.now());
+  scene(out.getContext('2d'),out.width,out.height,performance.now(),true);
   // banda inferior
   const c=out.getContext('2d'),H=out.height,W=out.width;
   c.fillStyle='rgba(28,64,105,.88)';c.fillRect(0,H-H*0.075,W,H*0.075);
@@ -163,6 +173,9 @@ function resetTimer(){
 }
 function home(){clearTimers();stopCam();state='inicio';show('s-inicio')}
 $('start').onclick=startGame;
+$('shoot').onclick=e=>{e.stopPropagation();shoot()};
+cv.addEventListener('pointerdown',e=>{if(!arrived||counting)return;const r=cv.getBoundingClientRect();
+  jtx=Math.max(cv.width*.14,Math.min(cv.width*.86,(e.clientX-r.left)/r.width*cv.width));jumpT0=performance.now()});
 $('again').onclick=()=>{clearTimers();stopCam();state='inicio';startGame()};
 raf=requestAnimationFrame(loop);
 // Si la pantalla de juego queda abandonada, volver al inicio
