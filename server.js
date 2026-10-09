@@ -9,7 +9,7 @@ const DIR = process.env.PHOTO_DIR || path.join(__dirname, 'fotos');
 const TTL = (+process.env.PHOTO_TTL_HOURS || 24) * 3600e3;
 fs.mkdirSync(DIR, { recursive: true });
 
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.png': 'image/png', '.css': 'text/css' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.png': 'image/png', '.css': 'text/css', '.wasm': 'application/wasm', '.glb': 'model/gltf-binary', '.json': 'application/json' };
 const hits = new Map();
 function limited(ip) {
   const now = Date.now();
@@ -70,7 +70,7 @@ http.createServer((req, res) => {
     const p = url.pathname === '/' ? '/index.html' : url.pathname;
     const f = path.join(__dirname, 'public', path.normalize(p).replace(/^(\.\.[/\\])+/, ''));
     if (!f.startsWith(path.join(__dirname, 'public'))) return send(res, 403, 'No', 'text/plain');
-    return fs.readFile(f, (e, b) => e ? send(res, 404, 'No encontrado', 'text/plain') : send(res, 200, b, MIME[path.extname(f)] || 'application/octet-stream'));
+    return fs.readFile(f, (e, b) => e ? send(res, 404, 'No encontrado', 'text/plain') : send(res, 200, b, MIME[path.extname(f)] || 'application/octet-stream', p.startsWith('/vendor/') ? { 'Cache-Control': 'public, max-age=86400' } : {}));
   }
   send(res, 404, { error: 'No encontrado' });
 }).listen(PORT, () => console.log('Jaguar en puerto ' + PORT));
