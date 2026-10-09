@@ -53,7 +53,7 @@ http.createServer((req, res) => {
   if (req.method === 'GET' && m) {
     fs.readFile(path.join(DIR, m[1] + '.jpg'), (e, b) => e
       ? send(res, 404, 'Esta foto ya no está disponible.', 'text/plain; charset=utf-8')
-      : send(res, 200, b, 'image/jpeg', { 'Content-Disposition': 'inline; filename="jaguares-utpl.jpg"', 'Cache-Control': 'private, max-age=3600' }));
+      : send(res, 200, b, 'image/jpeg', { 'Content-Disposition': 'inline; filename="foto-familia-utpl.jpg"', 'Cache-Control': 'private, max-age=3600' }));
     return;
   }
   m = /^\/f\/([a-f0-9]{14})$/.exec(url.pathname);
@@ -62,7 +62,7 @@ http.createServer((req, res) => {
     return send(res, 200, `<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tu foto · UTPL</title>
 <body style="margin:0;background:#1c4069;font-family:system-ui,sans-serif;text-align:center;color:#fff;padding:16px">
 <img src="/f/${m[1]}.jpg" alt="Tu foto" style="max-width:100%;border-radius:12px;box-shadow:0 6px 24px #0006">
-<p><a href="/f/${m[1]}.jpg" download="jaguares-utpl.jpg" style="display:inline-block;background:#f2c142;color:#1c4069;font-weight:700;padding:14px 26px;border-radius:30px;text-decoration:none">Descargar foto</a></p>
+<p><a href="/f/${m[1]}.jpg" download="foto-familia-utpl.jpg" style="display:inline-block;background:#f2c142;color:#1c4069;font-weight:700;padding:14px 26px;border-radius:30px;text-decoration:none">Descargar foto</a></p>
 <p style="font-size:12px;opacity:.8">La foto se elimina automáticamente a las 24 horas.</p></body></html>`, 'text/html; charset=utf-8');
   }
 
