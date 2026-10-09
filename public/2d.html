@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Foto con el Jaguar · UTPL</title>
+<style>
+:root{--navy:#1c4069;--yellow:#f2c142;--ink:#14263f}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%;overflow:hidden;background:var(--navy);font-family:Montserrat,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#fff;touch-action:manipulation;user-select:none;-webkit-user-select:none}
+.screen{position:fixed;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;text-align:center;padding:4vmin}
+.screen.on{display:flex}
+#s-inicio{background:radial-gradient(120% 90% at 30% 20%,#ffd75e,#f2b80f 70%);color:var(--navy)}
+#s-inicio img{height:52vmin;max-height:70vh;filter:drop-shadow(0 2vmin 2vmin #0004);animation:hop 1.6s ease-in-out infinite}
+@keyframes hop{50%{transform:translateY(-2vmin) rotate(1.5deg)}}
+h1{font-size:clamp(28px,7vmin,72px);font-weight:800;line-height:1.05;margin:2vmin 0}
+.sub{font-size:clamp(16px,2.8vmin,30px);font-weight:600;margin-bottom:3vmin;opacity:.85}
+button{font:inherit;cursor:pointer;border:0}
+.big{background:var(--navy);color:#fff;font-weight:800;font-size:clamp(24px,5vmin,52px);padding:2.4vmin 7vmin;border-radius:100px;box-shadow:0 1.2vmin 0 #0a2038;transition:transform .08s}
+.big:active{transform:translateY(.8vmin);box-shadow:0 .4vmin 0 #0a2038}
+.legal{position:absolute;bottom:2vmin;left:4vmin;right:4vmin;font-size:clamp(11px,1.7vmin,16px);opacity:.75}
+#s-juego{padding:0;background:#0a1626}
+#cv{max-width:100vw;max-height:100vh;width:auto;height:auto;display:block}
+#msg{position:absolute;left:0;right:0;top:4vmin;font-size:clamp(22px,5vmin,56px);font-weight:800;text-shadow:0 .4vmin 1.2vmin #000a;pointer-events:none}
+#msg2{position:absolute;left:0;right:0;top:calc(4vmin + clamp(26px,6vmin,66px));font-size:clamp(14px,2.6vmin,28px);font-weight:700;text-shadow:0 .3vmin 1vmin #000a;pointer-events:none}
+#cnt{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:36vmin;font-weight:900;color:var(--yellow);text-shadow:0 1vmin 3vmin #000a;pointer-events:none}
+#flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;transition:opacity .45s}
+#s-res{background:linear-gradient(135deg,#16335a,var(--navy))}
+.row{display:flex;gap:5vmin;align-items:center;justify-content:center;width:100%;flex-wrap:wrap}
+#foto{max-width:58vw;max-height:66vh;border-radius:2vmin;border:1vmin solid #fff;box-shadow:0 2vmin 6vmin #0008}
+.qrbox{background:#fff;color:var(--navy);border-radius:2.4vmin;padding:2.4vmin;max-width:34vw}
+#qr svg{width:min(26vw,40vh);height:auto;display:block}
+.qrbox b{display:block;margin-top:1.2vmin;font-size:clamp(14px,2.6vmin,28px)}
+#s-res .big{margin-top:4vmin;background:var(--yellow);color:var(--navy);box-shadow:0 1.2vmin 0 #b88f1d}
+#bar{position:absolute;bottom:0;left:0;height:1.2vmin;background:var(--yellow);width:100%;transform-origin:left}
+#err{color:#ffd1d1;font-size:clamp(16px,3vmin,30px);margin:2vmin;max-width:80vw}
+@media (orientation:portrait){#foto{max-width:88vw;max-height:44vh}.qrbox{max-width:60vw}#qr svg{width:min(44vw,30vh)}}
+</style>
+</head>
+<body>
+
+<div class="screen on" id="s-inicio">
+  <img src="jaguar.png" alt="Jaguar UTPL">
+  <h1>¡Tómate una foto con el Jaguar!</h1>
+  <p class="sub">Un jaguar de la UTPL se une a tu foto</p>
+  <button class="big" id="start">Empezar el juego</button>
+  <p class="legal">Tu foto se genera solo para que la descargues con un código QR y se elimina automáticamente a las 24 horas. UTPL · Decide ser más.</p>
+</div>
+
+<div class="screen" id="s-juego">
+  <canvas id="cv"></canvas>
+  <div id="msg"></div><div id="msg2"></div><button id="shoot" class="big" style="display:none;position:absolute;bottom:5vmin;left:50%;transform:translateX(-50%);font-size:clamp(18px,3.4vmin,36px);padding:1.6vmin 5vmin;white-space:nowrap">Tomar la foto ya</button><div id="cnt"></div><div id="flash"></div>
+</div>
+
+<div class="screen" id="s-res">
+  <div class="row">
+    <img id="foto" alt="Tu foto">
+    <div class="qrbox"><div id="qr"></div><b id="qrtxt">Escanea para descargar tu foto</b></div>
+  </div>
+  <p id="err" hidden></p>
+  <button class="big" id="again">Jugar otra vez</button>
+  <div id="bar"></div>
+</div>
+
+<script src="qrcode.js"></script>
+<script src="vendor/pose/pose.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const jag=new Image();jag.src='jaguar.png';
+const vid=document.createElement('video');vid.playsInline=true;vid.muted=true;
+const cv=$('cv'),cx=cv.getContext('2d');
+let stream=null,state='inicio',raf=0,timers=[];
+
+function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('on',s.id===id))}
+function later(fn,ms){timers.push(setTimeout(fn,ms))}
+function clearTimers(){timers.forEach(clearTimeout);timers=[]}
+
+// ---------- Seguimiento de la persona (MediaPipe, incluido en el sitio) ----------
+const Q=new URLSearchParams(location.search),SIM=Q.get('sim')==='1';
+let W=1280,H=720,person=null,lastSeen=0,seenFrames=0,pose=null,poseBusy=false,fallback=false,t0=0;
+function initPose(){
+  try{
+    pose=new Pose({locateFile:f=>'vendor/pose/'+f});
+    pose.setOptions({modelComplexity:0,smoothLandmarks:true,minDetectionConfidence:.5,minTrackingConfidence:.5});
+    pose.onResults(r=>{
+      const L=r.poseLandmarks;if(!L){seenFrames=0;return}
+      const a=L[11],b=L[12];if(!a||!b||a.visibility<.5||b.visibility<.5){seenFrames=0;return}
+      const xa=(1-a.x)*W,xb=(1-b.x)*W,ya=a.y*H,yb=b.y*H;
+      const sl=xa<xb?{x:xa,y:ya}:{x:xb,y:yb},sr=xa<xb?{x:xb,y:yb}:{x:xa,y:ya};
+      const wr=[L[15],L[16]].filter(Boolean).map(w=>({x:(1-w.x)*W,y:w.y*H,v:w.visibility||0}));
+      feed({sl,sr,wr});
+    });
+  }catch(e){console.warn('pose',e);pose=null}
+}
+function feed({sl,sr,wr}){
+  const sw=Math.max(40,sr.x-sl.x),n={slx:sl.x,sly:sl.y,srx:sr.x,sry:sr.y,sw};
+  if(!person)person=n;else for(const k in n)person[k]+=(n[k]-person[k])*.35;
+  if(wr)person.wr=wr;
+  lastSeen=performance.now();seenFrames++;
+}
+function trackLoop(){
+  if(state==='juego'||state==='cuenta'){
+    if(SIM){const t=(performance.now()-t0)/1000,cxp=W*(.4+.06*Math.sin(t*.6)),y=H*.46,sw=W*.17,up=Math.sin(t*.8)>-.2;
+      feed({sl:{x:cxp-sw/2,y},sr:{x:cxp+sw/2,y},wr:[{x:cxp+sw*.75,y:up?y-sw*.8:y+sw*1.6,v:1}]})}
+    else if(pose&&!poseBusy&&vid.videoWidth){poseBusy=true;pose.send({image:vid}).catch(()=>{}).finally(()=>poseBusy=false)}
+  }
+  setTimeout(trackLoop,66);
+}
+
+// ---------- Jaguar 2D interactivo ----------
+const PLAY=15,ACT_MS=3000,clamp=(x,a,b)=>Math.max(a,Math.min(b,x)),sstep=u=>u*u*(3-2*u);
+const MSGS={abrazo:'¡Un abrazo! 🤗',choca5:'¡Choca esos cinco! Levanta la mano 🙌',beso:'¡Muac! 😘',baile:'¡A bailar! 💃',flex:'¡Mira mis músculos! 💪',saludo:'¡Hola, hola! 👋',giro:'¡Wiii! 🌀'};
+let jx=0,jvx=0,jumpT0=-1e9,playStart=0,counting=false,nextJump=0,lastT=0,nearT=0,seq=[],seqShown=-1,burstDone=false,tapX=null,emitT=0;
+let J={x:0,lift:0,rot:0,sx:1,sy:1,jw:0,jh:100};
+const parts=[];
+function startSeq(){if(Q.get('seq')){seq=Q.get('seq').split(',');return}seq=['abrazo',...['choca5','beso','baile','flex','saludo','giro'].sort(()=>Math.random()-.5).slice(0,4)]}
+function spawn(kind,x,y,vx,vy,size,life=1.1){parts.push({kind,x,y,vx,vy,size,life,max:life})}
+function drawPart(c,p){
+  const k=p.life/p.max,sz=p.size*(1.25-.25*k);c.save();c.globalAlpha=Math.min(1,k*2.2);c.translate(p.x,p.y);c.scale(sz/64,sz/64);c.translate(-32,-32);
+  if(p.kind==='heart'){c.fillStyle='#ff4d6d';c.beginPath();c.moveTo(32,56);c.bezierCurveTo(4,36,6,10,22,10);c.bezierCurveTo(28,10,32,16,32,20);c.bezierCurveTo(32,16,36,10,42,10);c.bezierCurveTo(58,10,60,36,32,56);c.fill()}
+  else{c.fillStyle='#ffd23f';c.beginPath();for(let i=0;i<10;i++){const r=i%2?12:28,a=-Math.PI/2+i*Math.PI/5;c.lineTo(32+r*Math.cos(a),32+r*Math.sin(a))}c.closePath();c.fill()}
+  c.restore();
+}
+function drawDummy(c){if(!person)return;const p=person;c.save();c.fillStyle='#3b4a63';
+  c.beginPath();c.roundRect(p.slx-p.sw*.1,p.sly,p.sw*1.2,H,p.sw*.3);c.fill();
+  c.fillStyle='#d9b08c';c.beginPath();c.arc((p.slx+p.srx)/2,p.sly-p.sw*.62,p.sw*.42,0,7);c.fill();c.restore()}
+// dibuja todo con el estado ya calculado (también se usa para la foto)
+function drawAll(c,w,h){
+  c.fillStyle='#000';c.fillRect(0,0,w,h);
+  if(vid.videoWidth){c.save();c.translate(w,0);c.scale(-1,1);c.drawImage(vid,0,0,w,h);c.restore()}
+  if(SIM)drawDummy(c);
+  if(jag.complete&&jag.naturalWidth&&J.jw>0){
+    const base=h*0.94;
+    c.save();c.fillStyle='rgba(0,0,0,.28)';c.beginPath();c.ellipse(J.x,base,J.jw*.34*(1-Math.min(.5,J.lift/(h*.2))),h*.022,0,0,7);c.fill();
+    c.translate(J.x,base-J.lift);c.rotate(J.rot);c.scale(J.sx,J.sy);
+    c.drawImage(jag,-J.jw/2,-J.jh,J.jw,J.jh);c.restore();
+  }
+  for(const p of parts)drawPart(c,p);
+}
+function update(now){
+  const dt=Math.min(.05,(now-lastT)/1000||.016);lastT=now;const el=(now-t0)/1000;
+  const jh=H*.66,jw=jh*jag.naturalWidth/jag.naturalHeight;
+  const seen=person&&now-lastSeen<1200&&(seenFrames>=4||SIM);
+  if(!seen&&!fallback&&el>5){fallback=true;person={slx:W*.34,sly:H*.46,srx:W*.5,sry:H*.46,sw:W*.16}}
+  const have=seen||fallback,p=person||{slx:0,sly:0,srx:0,sry:0,sw:100};
+  let side=1;if(have&&(W-p.srx)<p.slx*.9&&(W-p.srx)<W*.28)side=-1;
+  let jtx=W+jw*.6;
+  if(have){const gap=jw*.42+p.sw*.5;jtx=clamp(side===1?p.srx+gap:p.slx-gap,jw*.5,W-jw*.5);if(fallback&&!seen&&tapX!==null)jtx=tapX}
+  if(!jx)jx=W+jw*.6;
+  const want=clamp((jtx-jx)*2.5,-W*.3,W*.3);jvx+=(want-jvx)*Math.min(1,dt*7);jx+=jvx*dt;
+  const walking=Math.abs(jvx)>W*.03,near=have&&Math.abs(jtx-jx)<W*.03;
+  nearT=near?nearT+dt:0;
+  if(!playStart&&!counting&&nearT>.6){playStart=now;nextJump=now+2500;startSeq();$('shoot').style.display='block'}
+  const pcx=(p.slx+p.srx)/2,personDir=pcx<jx?-1:1;
+  const headP={x:pcx,y:(p.sly+p.sry)/2-p.sw*.55};
+  const o={rot:0,dx:0,hop:0,sx:1,sy:1};
+  let act=null;
+  if(playStart&&!counting){
+    const tt=now-playStart,idx=Math.min(Math.floor(tt/ACT_MS),seq.length-1);act=seq[idx];
+    const u=clamp((tt-idx*ACT_MS)/ACT_MS,0,1),e=Math.min(1,u*5,(1-u)*5);
+    if(idx!==seqShown){seqShown=idx;burstDone=false;emitT=0;$('msg').textContent=MSGS[act]}
+    const left=Math.ceil(PLAY-tt/1000);$('msg2').textContent='Foto en '+Math.max(left,0)+' s · toca la pantalla para una sorpresa';
+    if(left<=0)shoot();
+    const hx=jx+o.dx,hy=H*.94-jh*.85;
+    const heartTo=(sp)=>{const dx=headP.x-hx,dy=headP.y-hy,L=Math.hypot(dx,dy)||1;spawn('heart',hx,hy,dx/L*H*.5+(Math.random()-.5)*H*.1,dy/L*H*.5-H*.15,H*.07,1.1)};
+    switch(act){
+      case 'abrazo':o.rot=personDir*.12*e;o.dx=personDir*jw*.1*e;emitT-=dt;if(e>.6&&emitT<=0){emitT=.5;heartTo()}break;
+      case 'choca5':{let hand={x:p.srx+side*p.sw*.9,y:p.sry-p.sw*1.0};
+        if(p.wr){const c=p.wr.filter(w=>w.v>.5&&w.y<(p.sly+p.sry)/2).sort((a,b)=>side*(b.x-a.x));if(c.length&&now-lastSeen<600)hand={x:c[0].x,y:c[0].y}}
+        o.dx=clamp((hand.x-jx)*.55,-jw*.35,jw*.35)*e;o.hop=Math.abs(Math.sin(u*Math.PI*2))*H*.06*e;o.rot=personDir*.1*e;
+        if(u>.45&&!burstDone){burstDone=true;for(let i=0;i<10;i++){const a=i/10*Math.PI*2;spawn('star',hand.x,hand.y,Math.cos(a)*H*.35,Math.sin(a)*H*.35,H*.07,.8)}}break}
+      case 'beso':o.rot=personDir*.2*e;o.dx=personDir*jw*.14*e;emitT-=dt;if(e>.6&&emitT<=0){emitT=.2;heartTo()}break;
+      case 'baile':o.hop=Math.abs(Math.sin(el*9))*H*.05*e;o.rot=Math.sin(el*8)*.12*e;o.sy=1+.04*Math.sin(el*18)*e;break;
+      case 'flex':o.sx=1+.07*Math.sin(el*10)*e;o.sy=1-.03*Math.sin(el*10)*e;emitT-=dt;if(e>.5&&emitT<=0){emitT=.15;spawn('star',hx+(Math.random()-.5)*jw*.8,hy+(Math.random()-.3)*jh*.3,0,-H*.12,H*.05,.7)}break;
+      case 'saludo':o.rot=Math.sin(el*14)*.1*e;o.hop=Math.abs(Math.sin(el*7))*H*.02*e;break;
+      case 'giro':o.sx=Math.cos(Math.PI*2*sstep(u));o.hop=Math.sin(Math.PI*u)*H*.1;break;
+    }
+  }
+  if(playStart&&!counting&&!act&&now>nextJump)jumpT0=now;
+  const jp=(now-jumpT0)/700,jumpOff=jp<1?Math.sin(Math.PI*jp)*H*.09:0;
+  const ph=now/1000;
+  const bob=walking?Math.abs(Math.sin(ph*7))*H*.025:Math.sin(ph*2)*H*.004;
+  const idleRot=walking?Math.sin(ph*7)*.04:Math.sin(ph*1.5)*.012;
+  // la imagen mira a la izquierda: voltear para mirar a la persona (o hacia donde camina)
+  const faceRight=walking?jvx>0:personDir>0;
+  J={x:jx+o.dx,lift:bob+o.hop+jumpOff,rot:idleRot+o.rot,sx:(faceRight?-1:1)*o.sx,sy:o.sy,jw,jh};
+  for(let i=parts.length-1;i>=0;i--){const q=parts[i];q.life-=dt;if(q.life<=0){parts.splice(i,1);continue}q.x+=q.vx*dt;q.y+=q.vy*dt}
+}
+function loop(now){
+  raf=requestAnimationFrame(loop);trackLoop();
+  if(state!=='juego'&&state!=='cuenta')return;
+  update(now);drawAll(cx,cv.width,cv.height);
+}
+function shoot(){if(counting)return;counting=true;$('shoot').style.display='none';count(3)}
+
+async function startGame(){
+  $('err').hidden=true;
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:1280},height:{ideal:720}},audio:false});
+  }catch(e){
+    alert('No se pudo abrir la cámara. Revisa el permiso de cámara del navegador y vuelve a intentar.');return;
+  }
+  vid.srcObject=stream;await vid.play();
+  await new Promise(r=>{if(vid.videoWidth)r();else vid.onloadedmetadata=r});
+  cv.width=W=vid.videoWidth;cv.height=H=vid.videoHeight;
+  jx=0;jvx=0;counting=false;playStart=0;nearT=0;seqShown=-1;burstDone=false;tapX=null;fallback=false;person=null;seenFrames=0;lastSeen=0;parts.length=0;$('msg2').textContent='';$('shoot').style.display='none';
+  if(!pose&&!SIM)initPose();
+  show('s-juego');state='juego';lastT=t0=performance.now();
+  $('msg').textContent='¡Mira quién viene!';$('cnt').textContent='';
+}
+function count(n){
+  if(state!=='juego'&&state!=='cuenta')return;
+  state='cuenta';
+  if(n>0){$('cnt').textContent=n;$('msg').textContent='¡Sonríe!';later(()=>count(n-1),1000)}
+  else{$('cnt').textContent='';snap()}
+}
+async function snap(){
+  const out=document.createElement('canvas');out.width=cv.width;out.height=cv.height;
+  drawAll(out.getContext('2d'),out.width,out.height);
+  // banda inferior
+  const c=out.getContext('2d'),H=out.height,W=out.width;
+  c.fillStyle='rgba(28,64,105,.88)';c.fillRect(0,H-H*0.075,W,H*0.075);
+  c.fillStyle='#f2c142';c.font='800 '+Math.round(H*0.04)+'px Montserrat,system-ui,sans-serif';c.textBaseline='middle';
+  c.fillText('UTPL · Jaguares · Decide ser más',W*0.025,H-H*0.0375);
+  $('flash').style.transition='none';$('flash').style.opacity=1;
+  requestAnimationFrame(()=>{$('flash').style.transition='opacity .45s';$('flash').style.opacity=0});
+  state='res';stopCam();
+  const data=out.toDataURL('image/jpeg',0.88);
+  $('foto').src=data;$('qr').replaceChildren();$('qrtxt').textContent='Generando tu código QR…';
+  await new Promise(r=>setTimeout(r,500));
+  show('s-res');
+  upload(data);
+  resetTimer();
+}
+async function upload(data,intento=1){
+  try{
+    const r=await fetch('/api/foto',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({img:data})});
+    if(!r.ok)throw new Error(r.status);
+    const {id}=await r.json();
+    const q=qrcode(0,'M');q.addData(location.origin+'/f/'+id);q.make();
+    $('qr').innerHTML=q.createSvgTag({cellSize:6,margin:0,scalable:true});
+    $('qrtxt').textContent='Escanea para descargar tu foto';
+    $('err').hidden=true;
+  }catch(e){
+    if(intento<3){setTimeout(()=>upload(data,intento+1),1200);return}
+    $('qrtxt').textContent='Sin conexión';
+    $('err').hidden=false;$('err').textContent='No se pudo generar el QR. Pulsa "Jugar otra vez" e inténtalo de nuevo.';
+  }
+}
+function stopCam(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}vid.srcObject=null}
+function resetTimer(){
+  const b=$('bar');b.style.transition='none';b.style.transform='scaleX(1)';
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{b.style.transition='transform 45s linear';b.style.transform='scaleX(0)'}));
+  later(home,45000);
+}
+function home(){clearTimers();stopCam();state='inicio';show('s-inicio')}
+$('start').onclick=startGame;
+$('shoot').onclick=e=>{e.stopPropagation();shoot()};
+cv.addEventListener('pointerdown',e=>{if(!playStart||counting)return;const r=cv.getBoundingClientRect();
+  tapX=clamp((e.clientX-r.left)/r.width*cv.width,cv.width*.14,cv.width*.86);jumpT0=performance.now();
+  for(let i=0;i<8;i++){const a=i/8*Math.PI*2;spawn('star',J.x,cv.height*.94-J.jh*.7,Math.cos(a)*cv.height*.3,Math.sin(a)*cv.height*.3,cv.height*.06,.7)}});
+$('again').onclick=()=>{clearTimers();stopCam();state='inicio';startGame()};
+raf=requestAnimationFrame(loop);
+// Si la pantalla de juego queda abandonada, volver al inicio
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&state!=='inicio')home()});
+</script>
+</body>
+</html>
