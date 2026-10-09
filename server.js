@@ -62,7 +62,18 @@ http.createServer((req, res) => {
     return send(res, 200, `<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tu foto · UTPL</title>
 <body style="margin:0;background:#1c4069;font-family:system-ui,sans-serif;text-align:center;color:#fff;padding:16px">
 <img src="/f/${m[1]}.jpg" alt="Tu foto" style="max-width:100%;border-radius:12px;box-shadow:0 6px 24px #0006">
-<p><a href="/f/${m[1]}.jpg" download="foto-familia-utpl.jpg" style="display:inline-block;background:#f2c142;color:#1c4069;font-weight:700;padding:14px 26px;border-radius:30px;text-decoration:none">Descargar foto</a></p>
+<p><button id="sv" style="display:inline-block;border:0;background:#f2c142;color:#1c4069;font-weight:700;font-size:16px;padding:14px 26px;border-radius:30px;cursor:pointer">Guardar en mi galería</button></p>
+<p id="hint" style="font-size:13px;opacity:.85;margin:6px 0"></p>
+<script>
+const U="/f/${m[1]}.jpg",N="foto-familia-utpl.jpg",h=document.getElementById("hint");
+document.getElementById("sv").onclick=async()=>{
+  try{const r=await fetch(U),b=await r.blob(),f=new File([b],N,{type:"image/jpeg"});
+    if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:"Foto en familia UTPL"});h.textContent="Elige «Guardar imagen» (iPhone) o Galería / Fotos (Android).";return}}
+  catch(e){if(e&&e.name==="AbortError")return}
+  const a=document.createElement("a");a.href=U;a.download=N;document.body.appendChild(a);a.click();a.remove();
+  h.textContent="Si no aparece en tu galería, mantén presionada la foto y elige «Guardar imagen».";
+};
+</script>
 <p style="font-size:12px;opacity:.8">La foto se elimina automáticamente a las 24 horas.</p></body></html>`, 'text/html; charset=utf-8');
   }
 
