@@ -125,14 +125,14 @@ const shadow=new THREE.Mesh(new THREE.CircleGeometry(1.1,24),new THREE.MeshBasic
 shadow.rotation.x=-Math.PI/2;shadow.scale.set(1,.5,1);holder.add(shadow);
 
 /* GLB oficial opcional: /jaguar.glb o ?glb=ruta */
-let mixer=null,clips={walk:null,idle:null},isGLB=false;
+let glbBaseY=0,mixer=null,clips={walk:null,idle:null},isGLB=false;
 async function tryGLB(){
   const url=Q.get('glb')||'jaguar.glb';
   try{const h=await fetch(url,{method:'HEAD'});if(!h.ok)return}catch{return}
   try{
     const g=await new GLTFLoader().loadAsync(url);const obj=g.scene;
     const box=new THREE.Box3().setFromObject(obj);const hgt=box.max.y-box.min.y||1;
-    const k=UNITS/hgt;obj.scale.setScalar(k);obj.position.y=-box.min.y*k;
+    const k=UNITS/hgt;obj.scale.setScalar(k);obj.position.y=-box.min.y*k;glbBaseY=obj.position.y;obj.userData.sx=obj.userData.sy=obj.userData.sz=k;
     holder.remove(rig.root);rig.root=obj;holder.add(obj);isGLB=true;
     mixer=new THREE.AnimationMixer(obj);
     for(const c of g.animations){const a=mixer.clipAction(c);
@@ -318,9 +318,15 @@ function frame(now){
         upZ=lerp(upZ,tz,w);foZ=lerp(foZ,tf,w);upX=upX*(1-w)}
       A.up.rotation.z=upZ;A.up.rotation.x=upX;A.fo.rotation.z=foZ;
     }
-  }else if(mixer){
-    mixer.update(dt);
-    if(clips.walk&&clips.idle){const w=walking?1:0;clips.walk.setEffectiveWeight(w);clips.idle.setEffectiveWeight(1-w);if(w&&!clips.walk.isRunning())clips.walk.play()}
+  }else{
+    // modelo GLB: con animaciones usa el mezclador; sin esqueleto, movimiento de cuerpo entero
+    if(mixer){mixer.update(dt);
+      if(clips.walk&&clips.idle){const w=walking?1:0;clips.walk.setEffectiveWeight(w);clips.idle.setEffectiveWeight(1-w);if(w&&!clips.walk.isRunning())clips.walk.play()}}
+    if(!clips.walk){
+      rig.root.position.y=glbBaseY+(walking?Math.abs(Math.sin(ph))*.12:Math.sin(el*2)*.02);
+      rig.root.rotation.z=o.lean+(walking?Math.sin(ph)*.06:0)+(act==='baile'?Math.sin(el*8)*.14*e:0)+(act==='saludo'?Math.sin(el*14)*.08*e:0);
+      const pump=act==='flex'?Math.sin(el*10)*.05*e:0;rig.root.scale.set((rig.root.userData.sx||1)*(1+pump),(rig.root.userData.sy||1)*(1-pump*.5),(rig.root.userData.sz||1)*(1+pump));
+    }
   }
   stepParts(dt);
   // render 2D + 3D
