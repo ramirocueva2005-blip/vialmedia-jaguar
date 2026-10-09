@@ -86,7 +86,7 @@ function scene(c,W,H,walk,now){
   const walking=walk<1, ph=now/1000;
   const bob=walking?Math.abs(Math.sin(ph*7))*H*0.025:Math.sin(ph*2)*H*0.004;
   const rot=walking?Math.sin(ph*7)*0.04:Math.sin(ph*1.5)*0.012;
-  const base=H*0.985;
+  const base=H*0.94;
   c.save();
   c.fillStyle='rgba(0,0,0,.28)';c.beginPath();c.ellipse(x+jw*0.5,base,jw*0.34*(1-bob/(H*0.1)),H*0.022,0,0,7);c.fill();
   c.translate(x+jw/2,base-bob);c.rotate(rot);
