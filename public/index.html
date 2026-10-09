@@ -51,15 +51,15 @@ button{font:inherit;cursor:pointer;border:0}
 
 <div class="screen on" id="s-inicio">
   <img class="fr" src="frame.png" alt="Marco UTPL #VamosLojanos">
-  <h1>¡Una foto en familia con el osito!</h1>
-  <p class="sub">Vengan todos juntos: papá, mamá, abuelos, hijos. El osito se une al abrazo.</p>
+  <h1>¡Una foto en familia!</h1>
+  <p class="sub">Vengan todos juntos: papá, mamá, abuelos, hijos.</p>
   <button class="big" id="start">Empezar el juego</button>
   <p class="legal">Tu foto se genera solo para que la descargues con un código QR y se elimina automáticamente a las 24 horas. UTPL · Decide ser más.</p>
 </div>
 
 <div class="screen" id="s-juego">
   <div id="stage"><div id="win"><canvas id="cv"></canvas></div><img id="frm" src="frame.png" alt=""><div id="winG"><canvas id="gl"></canvas></div><div id="winP"><canvas id="pc"></canvas></div><div id="ui">
-    <div id="msg"></div><div id="msg2"></div><button id="shoot" class="big" style="display:none;position:absolute;bottom:11.5%;left:32%;transform:translateX(-50%);font-size:clamp(18px,3.4vmin,36px);padding:1.6vmin 5vmin;white-space:nowrap">Tomar la foto ya</button><div id="cnt"></div><div id="flash"></div></div></div>
+    <div id="msg"></div><div id="msg2"></div><button id="shoot" class="big" style="display:none;position:absolute;bottom:11.5%;left:50%;transform:translateX(-50%);font-size:clamp(18px,3.4vmin,36px);padding:1.6vmin 5vmin;white-space:nowrap">Tomar la foto ya</button><div id="cnt"></div><div id="flash"></div></div></div>
 </div>
 
 <div class="screen" id="s-res">
@@ -83,7 +83,8 @@ import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 
 const $=id=>document.getElementById(id);
 const Q=new URLSearchParams(location.search);
-const SIM=Q.get('sim')==='1', DBG=Q.get('dbg')==='1';
+const BEAR=Q.get('oso')==='1';   // osito desactivado por defecto; activar con ?oso=1
+const SIM=BEAR&&Q.get('sim')==='1', DBG=Q.get('dbg')==='1';
 if(DBG)$('dbg').style.display='block';
 const vid=document.createElement('video');vid.playsInline=true;vid.muted=true;
 const cv=$('cv'),cx=cv.getContext('2d');
@@ -272,6 +273,7 @@ function actionCtrl(name,u,e,el,c){
 function frame(now){
   requestAnimationFrame(frame);
   if(state!=='juego'&&state!=='cuenta')return;
+  if(!BEAR){cx.fillStyle='#000';cx.fillRect(0,0,W,H);if(vid.videoWidth){cx.save();cx.translate(W,0);cx.scale(-1,1);cx.drawImage(vid,W-vox-vdw,voy,vdw,vdh);cx.restore()}return}
   const dt=Math.min(.05,(now-lastT)/1000||.016);lastT=now;
   const el=(now-t0)/1000;
   const seen=person&&now-lastSeen<1200&&(seenFrames>=4||SIM);
@@ -369,7 +371,7 @@ function resize(){
   cam=new THREE.OrthographicCamera(0,W,H,0,-5000,5000);cam.position.z=1000;
   
 }
-function shoot(){if(counting)return;counting=true;$('shoot').style.display='none';count(3)}
+function shoot(){if(counting)return;clearTimers();counting=true;$('shoot').style.display='none';count(3)}
 function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('on',s.id===id))}
 function later(fn,ms){timers.push(setTimeout(fn,ms))}
 function clearTimers(){timers.forEach(clearTimeout);timers=[]}
@@ -383,10 +385,11 @@ async function startGame(){
   await new Promise(r=>{if(vid.videoWidth)r();else vid.onloadedmetadata=r});
   W=897;H=1198;resize();fitVid();
   playStart=0;nearT=0;seqIdxShown=-1;burstDone=false;$('msg2').textContent='';$('shoot').style.display='none';person=null;curSide=-1;jx=0;pcx.clearRect(0,0,W,H);seenFrames=0;lastSeen=0;fallback=false;counting=false;vx=0;jx=0;yaw=0;
-  if(!pose&&!SIM)initPose();
+  if(BEAR&&!pose&&!SIM)initPose();
   show('s-juego');state='juego';SFX.start();SFX.music(true);t0=performance.now();lastT=t0;
-  $('msg').textContent='¡Párate frente a la cámara!';$('cnt').textContent='';
-  later(()=>{if(state==='juego'&&!counting&&!playStart)$('msg').textContent='¡Mira quién viene!'},1500);
+  $('msg').textContent=BEAR?'¡Párate frente a la cámara!':'¡Pónganse juntos y sonrían!';$('cnt').textContent='';
+  if(!BEAR){$('shoot').style.display='block';$('msg2').textContent='Toquen el botón cuando estén listos';later(()=>{if(state==='juego'&&!counting)home()},90000)}
+  if(BEAR)later(()=>{if(state==='juego'&&!counting&&!playStart)$('msg').textContent='¡Mira quién viene!'},1500);
 }
 function count(n){
   if(state!=='juego'&&state!=='cuenta')return;
@@ -437,7 +440,8 @@ $('shoot').onclick=e=>{e.stopPropagation();shoot()};
 $('stage').addEventListener('pointerdown',()=>{SFX.sparkle();if(playStart&&!counting){jumpT0=performance.now();const hp=holder.position.clone();hp.y+=holder.scale.x*3.6;for(let i=0;i<8;i++){const a=i/8*Math.PI*2;spawn('star',hp,new THREE.Vector3(Math.cos(a)*holder.scale.x*1.5,Math.sin(a)*holder.scale.x*1.5,0),holder.scale.x*.4,.7)}}});
 $('again').onclick=()=>{SFX.music(false);clearTimers();stopCam();state='inicio';startGame()};
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&state!=='inicio')home()});
-resize();requestAnimationFrame(frame);trackLoop();
+resize();requestAnimationFrame(frame);if(BEAR)trackLoop();
+holder.visible=BEAR;
 window.__dbg={get state(){return state}};
 </script>
 </body>
