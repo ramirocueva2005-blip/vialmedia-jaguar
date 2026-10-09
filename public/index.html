@@ -32,6 +32,8 @@ button{font:inherit;cursor:pointer;border:0}
 #msg{position:absolute;left:24%;right:2%;top:11%;font-size:clamp(16px,3.2vh,40px);font-weight:800;text-shadow:0 .4vmin 1.2vmin #000a;pointer-events:none}
 #msg2{position:absolute;left:0;right:0;top:15%;font-size:clamp(12px,1.8vh,22px);font-weight:700;text-shadow:0 .3vmin 1vmin #000a;pointer-events:none}
 #tm{position:absolute;top:15.3%;left:50%;transform:translateX(-50%);white-space:nowrap;background:#000a;color:#fff;font-weight:800;font-size:clamp(14px,2.4vh,26px);padding:.3em .8em;border-radius:100px;pointer-events:none;display:none}
+#shoot.pulse{animation:pls 1.3s ease-in-out infinite}
+@keyframes pls{50%{transform:translateX(-50%) scale(1.1)}}
 #cnt{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:36vmin;font-weight:900;color:var(--yellow);text-shadow:0 1vmin 3vmin #000a;pointer-events:none}
 #flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;transition:opacity .45s}
 #s-res{background:linear-gradient(135deg,#16335a,var(--navy))}
@@ -72,6 +74,7 @@ button{font:inherit;cursor:pointer;border:0}
   <button class="big" id="again">Jugar otra vez</button>
   <div id="bar"></div>
 </div>
+<button id="mdl" style="position:fixed;top:14px;right:118px;z-index:99;height:34px;padding:0 12px;border-radius:17px;border:0;background:#0004;color:#fffb;font-size:12px;font-weight:700;cursor:pointer"></button>
 <button id="fsbtn" aria-label="Pantalla completa" style="position:fixed;top:10px;right:64px;z-index:99;width:46px;height:46px;border-radius:50%;border:0;background:#0007;color:#fff;font-size:22px;cursor:pointer">⛶</button>
 <div id="dbg"></div>
 
@@ -273,7 +276,7 @@ function actionCtrl(name,u,e,el,c){
 }
 function frame(now){
   requestAnimationFrame(frame);
-  if(state!=='juego'&&state!=='cuenta')return;
+  if(state!=='juego'&&state!=='cuenta'&&state!=='espera')return;
   if(!BEAR){cx.fillStyle='#000';cx.fillRect(0,0,W,H);if(vid.videoWidth){cx.save();cx.translate(W,0);cx.scale(-1,1);cx.drawImage(vid,W-vox-vdw,voy,vdw,vdh);cx.restore()}return}
   const dt=Math.min(.05,(now-lastT)/1000||.016);lastT=now;
   const el=(now-t0)/1000;
@@ -382,14 +385,37 @@ function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.to
 function later(fn,ms){timers.push(setTimeout(fn,ms))}
 function clearTimers(){timers.forEach(clearTimeout);timers=[]}
 
-async function startGame(){
-  SFX.init();
-  $('err').hidden=true;
-  try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:1280},height:{ideal:720}},audio:false})}
-  catch(e){alert('No se pudo abrir la cámara. Revisa el permiso de cámara del navegador y vuelve a intentar.');return}
+/* Modelo 1: pantalla de inicio + botón. Modelo 2: cámara en vivo desde el inicio (el botón pequeño arriba cambia entre ambos). */
+let M=Q.get('modelo')||(()=>{try{return localStorage.getItem('modelo')}catch(e){return null}})()||'1';
+if(M!=='2')M='1';
+if(Q.get('modelo')){try{localStorage.setItem('modelo',M)}catch(e){}}
+const KEEP=()=>M==='2'&&!BEAR;
+async function openCam(){
+  if(stream&&stream.active&&vid.videoWidth)return;
+  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:1280},height:{ideal:720}},audio:false});
   vid.srcObject=stream;await vid.play();
   await new Promise(r=>{if(vid.videoWidth)r();else vid.onloadedmetadata=r});
   W=897;H=1198;resize();fitVid();
+}
+let wl=null;
+async function landing(){
+  clearTimers();stopTimer();counting=false;
+  try{await openCam()}catch(e){state='inicio';show('s-inicio');return}
+  try{if(navigator.wakeLock&&!wl){wl=await navigator.wakeLock.request('screen');wl.addEventListener('release',()=>{wl=null})}}catch(e){}
+  show('s-juego');state='espera';
+  $('msg').textContent='¡Tómate una foto en familia!';$('msg2').textContent='Toca la pantalla para empezar';$('cnt').textContent='';
+  const sb=$('shoot');sb.textContent='Toca aquí para empezar';sb.style.display='block';sb.classList.add('pulse');
+}
+function beginPlay(){
+  SFX.init();SFX.start();SFX.music(true);
+  state='juego';counting=false;$('cnt').textContent='';$('msg').textContent='¡Pónganse juntos y sonrían!';$('msg2').textContent='';
+  const sb=$('shoot');sb.textContent='Tomar la foto ya';sb.classList.remove('pulse');sb.style.display='block';startTimer();
+}
+async function startGame(){
+  SFX.init();
+  $('err').hidden=true;
+  try{await openCam()}
+  catch(e){alert('No se pudo abrir la cámara. Revisa el permiso de cámara del navegador y vuelve a intentar.');return}
   playStart=0;nearT=0;seqIdxShown=-1;burstDone=false;$('msg2').textContent='';$('shoot').style.display='none';person=null;curSide=-1;jx=0;pcx.clearRect(0,0,W,H);seenFrames=0;lastSeen=0;fallback=false;counting=false;vx=0;jx=0;yaw=0;
   if(BEAR&&!pose&&!SIM)initPose();
   show('s-juego');state='juego';SFX.start();SFX.music(true);t0=performance.now();lastT=t0;
@@ -430,23 +456,30 @@ async function upload(data,intento=1){
     $('err').textContent='No se pudo generar el QR. Pulsa "Jugar otra vez" e inténtalo de nuevo.';
   }
 }
-function stopCam(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}vid.srcObject=null}
+function stopCam(force){if(KEEP()&&!force)return;if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}vid.srcObject=null}
 function resetTimer(){
   const b=$('bar');b.style.transition='none';b.style.transform='scaleX(1)';
   requestAnimationFrame(()=>requestAnimationFrame(()=>{b.style.transition='transform 45s linear';b.style.transform='scaleX(0)'}));
   later(home,45000);
 }
-function home(){stopTimer();SFX.music(false);clearTimers();stopCam();state='inicio';show('s-inicio')}
+function home(){stopTimer();SFX.music(false);clearTimers();if(KEEP()){landing();return}stopCam();state='inicio';show('s-inicio')}
 const FSE=document.documentElement,fsReq=FSE.requestFullscreen||FSE.webkitRequestFullscreen,fsExit=document.exitFullscreen||document.webkitExitFullscreen;
 if(!fsReq)$('fsbtn').style.display='none';
 $('fsbtn').onclick=e=>{e.stopPropagation();const on=document.fullscreenElement||document.webkitFullscreenElement;
   try{on?fsExit.call(document):fsReq.call(FSE)}catch(_){}};
+const mdlUpd=()=>{$('mdl').textContent='Modelo '+M;$('mdl').style.display=(BEAR||!(state==='inicio'||state==='espera'))?'none':'block'};
+$('mdl').onclick=e=>{e.stopPropagation();M=M==='1'?'2':'1';try{localStorage.setItem('modelo',M)}catch(_){}
+  if(M==='2')landing();else{stopTimer();SFX.music(false);clearTimers();stopCam(true);state='inicio';show('s-inicio')}mdlUpd()};
+setInterval(mdlUpd,300);mdlUpd();
 $('start').onclick=startGame;
-$('shoot').onclick=e=>{e.stopPropagation();shoot()};
+$('shoot').onclick=e=>{e.stopPropagation();if(state==='espera')beginPlay();else shoot()};
+$('stage').addEventListener('pointerdown',()=>{if(state==='espera')beginPlay()});
 $('stage').addEventListener('pointerdown',()=>{SFX.sparkle();if(playStart&&!counting){jumpT0=performance.now();const hp=holder.position.clone();hp.y+=holder.scale.x*3.6;for(let i=0;i<8;i++){const a=i/8*Math.PI*2;spawn('star',hp,new THREE.Vector3(Math.cos(a)*holder.scale.x*1.5,Math.sin(a)*holder.scale.x*1.5,0),holder.scale.x*.4,.7)}}});
-$('again').onclick=()=>{stopTimer();SFX.music(false);clearTimers();stopCam();state='inicio';startGame()};
-document.addEventListener('visibilitychange',()=>{if(document.hidden&&state!=='inicio')home()});
-resize();requestAnimationFrame(frame);if(BEAR)trackLoop();
+$('again').onclick=()=>{stopTimer();SFX.music(false);clearTimers();if(KEEP()){landing();return}stopCam();state='inicio';startGame()};
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden){if(state!=='inicio'){SFX.music(false);clearTimers();stopTimer();stopCam(true);state='inicio';show('s-inicio')}}
+  else if(KEEP()&&state==='inicio')landing()});
+resize();requestAnimationFrame(frame);if(KEEP())landing();if(BEAR)trackLoop();
 holder.visible=BEAR;
 window.__dbg={get state(){return state}};
 </script>
