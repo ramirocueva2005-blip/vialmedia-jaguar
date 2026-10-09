@@ -71,6 +71,7 @@ button{font:inherit;cursor:pointer;border:0}
   <button class="big" id="again">Jugar otra vez</button>
   <div id="bar"></div>
 </div>
+<button id="fsbtn" aria-label="Pantalla completa" style="position:fixed;top:10px;right:64px;z-index:99;width:46px;height:46px;border-radius:50%;border:0;background:#0007;color:#fff;font-size:22px;cursor:pointer">⛶</button>
 <div id="dbg"></div>
 
 <script src="qrcode.js"></script>
@@ -427,6 +428,10 @@ function resetTimer(){
   later(home,45000);
 }
 function home(){SFX.music(false);clearTimers();stopCam();state='inicio';show('s-inicio')}
+const FSE=document.documentElement,fsReq=FSE.requestFullscreen||FSE.webkitRequestFullscreen,fsExit=document.exitFullscreen||document.webkitExitFullscreen;
+if(!fsReq)$('fsbtn').style.display='none';
+$('fsbtn').onclick=e=>{e.stopPropagation();const on=document.fullscreenElement||document.webkitFullscreenElement;
+  try{on?fsExit.call(document):fsReq.call(FSE)}catch(_){}};
 $('start').onclick=startGame;
 $('shoot').onclick=e=>{e.stopPropagation();shoot()};
 $('stage').addEventListener('pointerdown',()=>{SFX.sparkle();if(playStart&&!counting){jumpT0=performance.now();const hp=holder.position.clone();hp.y+=holder.scale.x*3.6;for(let i=0;i<8;i++){const a=i/8*Math.PI*2;spawn('star',hp,new THREE.Vector3(Math.cos(a)*holder.scale.x*1.5,Math.sin(a)*holder.scale.x*1.5,0),holder.scale.x*.4,.7)}}});
