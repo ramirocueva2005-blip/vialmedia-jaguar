@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Foto con el Jaguar · UTPL</title>
+<style>
+:root{--navy:#1c4069;--yellow:#f2c142;--ink:#14263f}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%;overflow:hidden;background:var(--navy);font-family:Montserrat,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#fff;touch-action:manipulation;user-select:none;-webkit-user-select:none}
+.screen{position:fixed;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;text-align:center;padding:4vmin}
+.screen.on{display:flex}
+#s-inicio{background:radial-gradient(120% 90% at 30% 20%,#ffd75e,#f2b80f 70%);color:var(--navy)}
+#s-inicio img{height:52vmin;max-height:70vh;filter:drop-shadow(0 2vmin 2vmin #0004);animation:hop 1.6s ease-in-out infinite}
+@keyframes hop{50%{transform:translateY(-2vmin) rotate(1.5deg)}}
+h1{font-size:clamp(28px,7vmin,72px);font-weight:800;line-height:1.05;margin:2vmin 0}
+.sub{font-size:clamp(16px,2.8vmin,30px);font-weight:600;margin-bottom:3vmin;opacity:.85}
+button{font:inherit;cursor:pointer;border:0}
+.big{background:var(--navy);color:#fff;font-weight:800;font-size:clamp(24px,5vmin,52px);padding:2.4vmin 7vmin;border-radius:100px;box-shadow:0 1.2vmin 0 #0a2038;transition:transform .08s}
+.big:active{transform:translateY(.8vmin);box-shadow:0 .4vmin 0 #0a2038}
+.legal{position:absolute;bottom:2vmin;left:4vmin;right:4vmin;font-size:clamp(11px,1.7vmin,16px);opacity:.75}
+#s-juego{padding:0;background:#0a1626}
+#cv{max-width:100vw;max-height:100vh;width:auto;height:auto;display:block}
+#msg{position:absolute;left:0;right:0;top:4vmin;font-size:clamp(22px,5vmin,56px);font-weight:800;text-shadow:0 .4vmin 1.2vmin #000a;pointer-events:none}
+#cnt{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:36vmin;font-weight:900;color:var(--yellow);text-shadow:0 1vmin 3vmin #000a;pointer-events:none}
+#flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;transition:opacity .45s}
+#s-res{background:linear-gradient(135deg,#16335a,var(--navy))}
+.row{display:flex;gap:5vmin;align-items:center;justify-content:center;width:100%;flex-wrap:wrap}
+#foto{max-width:58vw;max-height:66vh;border-radius:2vmin;border:1vmin solid #fff;box-shadow:0 2vmin 6vmin #0008}
+.qrbox{background:#fff;color:var(--navy);border-radius:2.4vmin;padding:2.4vmin;max-width:34vw}
+#qr svg{width:min(26vw,40vh);height:auto;display:block}
+.qrbox b{display:block;margin-top:1.2vmin;font-size:clamp(14px,2.6vmin,28px)}
+#s-res .big{margin-top:4vmin;background:var(--yellow);color:var(--navy);box-shadow:0 1.2vmin 0 #b88f1d}
+#bar{position:absolute;bottom:0;left:0;height:1.2vmin;background:var(--yellow);width:100%;transform-origin:left}
+#err{color:#ffd1d1;font-size:clamp(16px,3vmin,30px);margin:2vmin;max-width:80vw}
+@media (orientation:portrait){#foto{max-width:88vw;max-height:44vh}.qrbox{max-width:60vw}#qr svg{width:min(44vw,30vh)}}
+</style>
+</head>
+<body>
+
+<div class="screen on" id="s-inicio">
+  <img src="jaguar.png" alt="Jaguar UTPL">
+  <h1>¡Tómate una foto con el Jaguar!</h1>
+  <p class="sub">Un jaguar de la UTPL se une a tu foto</p>
+  <button class="big" id="start">Empezar el juego</button>
+  <p class="legal">Tu foto se genera solo para que la descargues con un código QR y se elimina automáticamente a las 24 horas. UTPL · Decide ser más.</p>
+</div>
+
+<div class="screen" id="s-juego">
+  <canvas id="cv"></canvas>
+  <div id="msg"></div><div id="cnt"></div><div id="flash"></div>
+</div>
+
+<div class="screen" id="s-res">
+  <div class="row">
+    <img id="foto" alt="Tu foto">
+    <div class="qrbox"><div id="qr"></div><b id="qrtxt">Escanea para descargar tu foto</b></div>
+  </div>
+  <p id="err" hidden></p>
+  <button class="big" id="again">Jugar otra vez</button>
+  <div id="bar"></div>
+</div>
+
+<script src="qrcode.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const jag=new Image();jag.src='jaguar.png';
+const vid=document.createElement('video');vid.playsInline=true;vid.muted=true;
+const cv=$('cv'),cx=cv.getContext('2d');
+let stream=null,state='inicio',t0=0,raf=0,timers=[];
+const WALK=3200;           // ms de caminata
+const ease=p=>1-Math.pow(1-p,3);
+
+function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('on',s.id===id))}
+function later(fn,ms){timers.push(setTimeout(fn,ms))}
+function clearTimers(){timers.forEach(clearTimeout);timers=[]}
+
+// Dibuja video espejado + jaguar. walk: 0..1 progreso de la caminata
+function scene(c,W,H,walk,now){
+  c.fillStyle='#000';c.fillRect(0,0,W,H);
+  if(vid.videoWidth){c.save();c.translate(W,0);c.scale(-1,1);c.drawImage(vid,0,0,W,H);c.restore()}
+  if(!jag.complete||!jag.naturalWidth)return;
+  const jh=H*0.72,jw=jh*jag.naturalWidth/jag.naturalHeight;
+  const tx=W*0.72-jw/2, sx=W+jw*0.1;
+  const x=sx+(tx-sx)*ease(Math.min(1,walk));
+  const walking=walk<1, ph=now/1000;
+  const bob=walking?Math.abs(Math.sin(ph*7))*H*0.025:Math.sin(ph*2)*H*0.004;
+  const rot=walking?Math.sin(ph*7)*0.04:Math.sin(ph*1.5)*0.012;
+  const base=H*0.985;
+  c.save();
+  c.fillStyle='rgba(0,0,0,.28)';c.beginPath();c.ellipse(x+jw*0.5,base,jw*0.34*(1-bob/(H*0.1)),H*0.022,0,0,7);c.fill();
+  c.translate(x+jw/2,base-bob);c.rotate(rot);
+  c.drawImage(jag,-jw/2,-jh,jw,jh);
+  c.restore();
+}
+function loop(now){
+  if(state==='juego'||state==='cuenta'){
+    const w=Math.min(1,(now-t0)/WALK);
+    scene(cx,cv.width,cv.height,w,now);
+  }
+  raf=requestAnimationFrame(loop);
+}
+
+async function startGame(){
+  $('err').hidden=true;
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:1280},height:{ideal:720}},audio:false});
+  }catch(e){
+    alert('No se pudo abrir la cámara. Revisa el permiso de cámara del navegador y vuelve a intentar.');return;
+  }
+  vid.srcObject=stream;await vid.play();
+  await new Promise(r=>{if(vid.videoWidth)r();else vid.onloadedmetadata=r});
+  cv.width=vid.videoWidth;cv.height=vid.videoHeight;
+  show('s-juego');state='juego';t0=performance.now();
+  $('msg').textContent='¡Mira quién viene!';$('cnt').textContent='';
+  later(()=>{if(state==='juego')$('msg').textContent='¡Ponte a su lado y sonríe!'},WALK-300);
+  later(()=>count(3),WALK+900);
+}
+function count(n){
+  if(state!=='juego'&&state!=='cuenta')return;
+  state='cuenta';
+  if(n>0){$('cnt').textContent=n;$('msg').textContent='¡Sonríe!';later(()=>count(n-1),1000)}
+  else{$('cnt').textContent='';snap()}
+}
+async function snap(){
+  const out=document.createElement('canvas');out.width=cv.width;out.height=cv.height;
+  scene(out.getContext('2d'),out.width,out.height,1,performance.now());
+  // banda inferior
+  const c=out.getContext('2d'),H=out.height,W=out.width;
+  c.fillStyle='rgba(28,64,105,.88)';c.fillRect(0,H-H*0.075,W,H*0.075);
+  c.fillStyle='#f2c142';c.font='800 '+Math.round(H*0.04)+'px Montserrat,system-ui,sans-serif';c.textBaseline='middle';
+  c.fillText('UTPL · Jaguares · Decide ser más',W*0.025,H-H*0.0375);
+  $('flash').style.transition='none';$('flash').style.opacity=1;
+  requestAnimationFrame(()=>{$('flash').style.transition='opacity .45s';$('flash').style.opacity=0});
+  state='res';stopCam();
+  const data=out.toDataURL('image/jpeg',0.88);
+  $('foto').src=data;$('qr').replaceChildren();$('qrtxt').textContent='Generando tu código QR…';
+  await new Promise(r=>setTimeout(r,500));
+  show('s-res');
+  upload(data);
+  resetTimer();
+}
+async function upload(data,intento=1){
+  try{
+    const r=await fetch('/api/foto',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({img:data})});
+    if(!r.ok)throw new Error(r.status);
+    const {id}=await r.json();
+    const q=qrcode(0,'M');q.addData(location.origin+'/f/'+id);q.make();
+    $('qr').innerHTML=q.createSvgTag({cellSize:6,margin:0,scalable:true});
+    $('qrtxt').textContent='Escanea para descargar tu foto';
+    $('err').hidden=true;
+  }catch(e){
+    if(intento<3){setTimeout(()=>upload(data,intento+1),1200);return}
+    $('qrtxt').textContent='Sin conexión';
+    $('err').hidden=false;$('err').textContent='No se pudo generar el QR. Pulsa "Jugar otra vez" e inténtalo de nuevo.';
+  }
+}
+function stopCam(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}vid.srcObject=null}
+function resetTimer(){
+  const b=$('bar');b.style.transition='none';b.style.transform='scaleX(1)';
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{b.style.transition='transform 45s linear';b.style.transform='scaleX(0)'}));
+  later(home,45000);
+}
+function home(){clearTimers();stopCam();state='inicio';show('s-inicio')}
+$('start').onclick=startGame;
+$('again').onclick=()=>{clearTimers();stopCam();state='inicio';startGame()};
+raf=requestAnimationFrame(loop);
+// Si la pantalla de juego queda abandonada, volver al inicio
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&state!=='inicio')home()});
+</script>
+</body>
+</html>
