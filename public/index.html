@@ -78,6 +78,7 @@ button{font:inherit;cursor:pointer;border:0}
 <div id="campan" style="display:none;position:fixed;right:10px;top:60px;z-index:120;width:min(380px,92vw);max-height:84vh;overflow:auto;background:#0b1626ee;color:#fff;border-radius:14px;padding:14px 16px;font-size:14px;box-shadow:0 8px 30px #000a"></div>
 <button id="mdl" style="position:fixed;top:14px;right:118px;z-index:99;height:34px;padding:0 12px;border-radius:17px;border:0;background:#0004;color:#fffb;font-size:12px;font-weight:700;cursor:pointer"></button>
 <button id="fsbtn" aria-label="Pantalla completa" style="position:fixed;top:10px;right:64px;z-index:99;width:46px;height:46px;border-radius:50%;border:0;background:#0007;color:#fff;font-size:22px;cursor:pointer">⛶</button>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="af" color-interpolation-filters="sRGB"><feComponentTransfer><feFuncR id="fr" type="gamma" amplitude="1" exponent="1"/><feFuncG id="fg" type="gamma" amplitude="1" exponent="1"/><feFuncB id="fb" type="gamma" amplitude="1" exponent="1"/></feComponentTransfer></filter></svg>
 <div id="dbg"></div>
 
 <script src="qrcode.js"></script>
@@ -403,7 +404,39 @@ async function openCam(){
 /* ---- Ajustes de cámara (exposición) ---- */
 let CAMSET=(()=>{try{return JSON.parse(localStorage.getItem('cam')||'{}')}catch(e){return {}}})();
 const saveCam=()=>{try{localStorage.setItem('cam',JSON.stringify(CAMSET))}catch(e){}};
-function vFilter(){const b=CAMSET.sb==null?1:CAMSET.sb,c=CAMSET.sc==null?1:CAMSET.sc;return(b===1&&c===1)?'none':'brightness('+b+') contrast('+c+')'}
+const AUTO={g:1,e:1,gn:1,ec:null,lastHw:0,Lc:0,p94:0};
+function vFilter(){const b=CAMSET.sb==null?1:CAMSET.sb,c=CAMSET.sc==null?1:CAMSET.sc;
+  const au=CAMSET.auto!==false&&(Math.abs(AUTO.g-1)>.01||Math.abs(AUTO.e-1)>.01);
+  const parts=[];if(au)parts.push('url(#af)');if(b!==1)parts.push('brightness('+b+')');if(c!==1)parts.push('contrast('+c+')');
+  return parts.length?parts.join(' '):'none'}
+let amc=null,amx=null;
+function setAF(){for(const id of['fr','fg','fb']){const e=$(id);e.setAttribute('amplitude',AUTO.g.toFixed(3));e.setAttribute('exponent',AUTO.e.toFixed(3))}}
+/* Algoritmo puro: devuelve la ganancia necesaria a partir de luminancias (0-255) */
+function autoGain(lumC,p94){const gc=120/Math.max(8,lumC),gcl=240/Math.max(40,p94);return Math.max(.3,Math.min(1.4,Math.min(gc,gcl)))}
+function autoStep(){
+  if(CAMSET.auto===false||!vid.videoWidth||!(state==='espera'||state==='juego'||state==='cuenta')){if(AUTO.g!==1||AUTO.e!==1){AUTO.g=1;AUTO.e=1;setAF()}return}
+  if(!amc){amc=document.createElement('canvas');amc.width=48;amc.height=64;amx=amc.getContext('2d',{willReadFrequently:true})}
+  const vw=vid.videoWidth,vh=vid.videoHeight,k=Math.max(W/vw,H/vh),sw=W/k,sh=H/k,sx=(vw-sw)/2,sy=(vh-sh)/2;
+  amx.filter='none';amx.drawImage(vid,sx,sy,sw,sh,0,0,48,64);
+  const d=amx.getImageData(0,0,48,64).data,hist=new Uint16Array(256);let sc=0,nc=0;
+  for(let y=0;y<64;y++)for(let x=0;x<48;x++){const q=(y*48+x)*4,l=Math.round(.299*d[q]+.587*d[q+1]+.114*d[q+2]);hist[l]++;
+    if(x>=10&&x<38&&y>=10&&y<54){sc+=l;nc++}}
+  let acc=0,p94=255;for(let i=0;i<256;i++){acc+=hist[i];if(acc>=3072*.94){p94=i;break}}
+  const Lc=sc/nc;AUTO.Lc=Lc;AUTO.p94=p94;
+  let need=autoGain(Lc,p94);let hi=0;for(let i=250;i<256;i++)hi+=hist[i];const clip=hi/3072;if(clip>.08)need=Math.min(need,Math.max(.6,1-clip*1.5));AUTO.gn=need;AUTO.clip=clip;
+  const tgt=Math.max(.72,Math.min(1.25,need));
+  AUTO.g+=(tgt-AUTO.g)*.2;
+  const eT=tgt<.95?1-Math.min(.2,(1-tgt)*.7):1;AUTO.e+=(eT-AUTO.e)*.2;
+  setAF();
+  // hardware: compensación de exposición paso a paso si la cámara lo permite
+  const c=tcaps(),now=performance.now();
+  if(c.exposureCompensation&&now-AUTO.lastHw>900&&Math.abs(need-1)>.15){
+    const st=c.exposureCompensation.step||.33,t=vtrack();if(AUTO.ec==null){try{AUTO.ec=t.getSettings().exposureCompensation||0}catch(e){AUTO.ec=0}}
+    const nx=Math.max(c.exposureCompensation.min,Math.min(c.exposureCompensation.max,AUTO.ec+(need<1?-st:st)));
+    if(nx!==AUTO.ec){AUTO.ec=nx;AUTO.lastHw=now;applyOne({exposureCompensation:nx})}
+  }
+}
+setInterval(autoStep,250);
 const vtrack=()=>stream&&stream.getVideoTracks()[0];
 const tcaps=()=>{const t=vtrack();try{return t&&t.getCapabilities?t.getCapabilities():{}}catch(e){return {}}};
 let camDef=null;
@@ -423,6 +456,7 @@ function buildCamPanel(){
   const row=(label,k,cap,def,hw)=>{const cur=CAMSET[k]!=null?CAMSET[k]:def;
     return '<div style="margin:10px 0"><div style="display:flex;justify-content:space-between"><b>'+label+'</b><span id="v_'+k+'">'+(+cur).toFixed(2)+'</span></div><input data-k="'+k+'" data-hw="'+(hw?1:0)+'" type="range" min="'+cap.min+'" max="'+cap.max+'" step="'+(cap.step||0.01)+'" value="'+cur+'" style="width:100%;height:30px"></div>'};
   let h='<div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:16px">Ajustes de cámara</b><button id="cpx" style="background:#fff2;color:#fff;border:0;border-radius:8px;padding:6px 12px;font-size:14px">Cerrar</button></div>';
+  h+='<label style="display:flex;gap:8px;align-items:center;margin:10px 0 2px;font-size:15px"><input type="checkbox" id="autoc" '+(CAMSET.auto!==false?'checked':'')+' style="width:22px;height:22px"> <b>Ajuste automático de luz</b></label><div id="autoinfo" style="opacity:.75;font-size:12px"></div>';
   h+='<div style="opacity:.8;margin-top:6px">Tu cámara permite: '+['exposureMode','exposureCompensation','exposureTime','brightness','contrast'].map(k=>(has(k)?'✓ ':'✗ ')+k).join(' · ')+'</div>';
   if(has('exposureMode')&&c.exposureMode.length>1){const cur=CAMSET.em||st.exposureMode||'continuous';
     h+='<div style="margin:10px 0"><b>Modo de exposición</b><br><select id="em" style="width:100%;height:34px;margin-top:4px">'+c.exposureMode.map(m=>'<option value="'+m+'"'+(m===cur?' selected':'')+'>'+m+'</option>').join('')+'</select></div>'}
@@ -435,15 +469,17 @@ function buildCamPanel(){
      '<button id="cpr" style="margin-top:6px;background:#f2c142;color:#1c4069;border:0;border-radius:8px;padding:8px 14px;font-weight:700">Restablecer todo</button>';
   el.innerHTML=h;
   $('cpx').onclick=()=>{el.style.display='none'};
+  $('autoc').onchange=e=>{CAMSET.auto=e.target.checked;saveCam();if(!e.target.checked){AUTO.g=1;AUTO.e=1;setAF()}};
   el.querySelectorAll('input[type=range]').forEach(i=>i.oninput=async()=>{const k=i.dataset.k,v=+i.value;CAMSET[k]=v;saveCam();$('v_'+k).textContent=v.toFixed(2);
     if(i.dataset.hw==='1'){const map={ec:'exposureCompensation',et:'exposureTime',br:'brightness',ct:'contrast'};
       if(k==='et'&&c.exposureMode&&c.exposureMode.includes('manual')){CAMSET.em='manual';saveCam();await applyOne({exposureMode:'manual'});const s=$('em');if(s)s.value='manual'}
       await applyOne({[map[k]]:v})}});
   const em=$('em');if(em)em.onchange=async()=>{CAMSET.em=em.value;saveCam();await applyOne({exposureMode:em.value})};
-  $('cpr').onclick=async()=>{CAMSET={};saveCam();if(c.exposureMode&&c.exposureMode.includes('continuous'))await applyOne({exposureMode:'continuous'});
+  $('cpr').onclick=async()=>{CAMSET={};saveCam();AUTO.ec=null;if(c.exposureMode&&c.exposureMode.includes('continuous'))await applyOne({exposureMode:'continuous'});
     if(camDef){for(const k of['exposureCompensation','brightness','contrast']){if(camDef[k]!=null&&c[k])await applyOne({[k]:camDef[k]})}}
     buildCamPanel()};
 }
+setInterval(()=>{const i=document.getElementById('autoinfo');if(i&&$('campan').style.display==='block')i.textContent='luz centro '+Math.round(AUTO.Lc)+' · zona clara '+AUTO.p94+' · quemado '+Math.round((AUTO.clip||0)*100)+'%'+' · ganancia '+AUTO.g.toFixed(2)+' (necesaria '+AUTO.gn.toFixed(2)+')'+(AUTO.ec!=null?' · comp. cámara '+AUTO.ec.toFixed(2):'')},500);
 let wl=null;
 async function landing(){
   clearTimers();stopTimer();counting=false;
