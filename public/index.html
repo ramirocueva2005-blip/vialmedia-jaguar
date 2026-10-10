@@ -74,6 +74,8 @@ button{font:inherit;cursor:pointer;border:0}
   <button class="big" id="again">Jugar otra vez</button>
   <div id="bar"></div>
 </div>
+<button id="camb" aria-label="Ajustes de cámara" style="position:fixed;top:14px;right:208px;z-index:99;height:34px;width:34px;border-radius:17px;border:0;background:#0004;color:#fffb;font-size:16px;cursor:pointer;display:none">☀</button>
+<div id="campan" style="display:none;position:fixed;right:10px;top:60px;z-index:120;width:min(380px,92vw);max-height:84vh;overflow:auto;background:#0b1626ee;color:#fff;border-radius:14px;padding:14px 16px;font-size:14px;box-shadow:0 8px 30px #000a"></div>
 <button id="mdl" style="position:fixed;top:14px;right:118px;z-index:99;height:34px;padding:0 12px;border-radius:17px;border:0;background:#0004;color:#fffb;font-size:12px;font-weight:700;cursor:pointer"></button>
 <button id="fsbtn" aria-label="Pantalla completa" style="position:fixed;top:10px;right:64px;z-index:99;width:46px;height:46px;border-radius:50%;border:0;background:#0007;color:#fff;font-size:22px;cursor:pointer">⛶</button>
 <div id="dbg"></div>
@@ -277,7 +279,7 @@ function actionCtrl(name,u,e,el,c){
 function frame(now){
   requestAnimationFrame(frame);
   if(state!=='juego'&&state!=='cuenta'&&state!=='espera')return;
-  if(!BEAR){cx.fillStyle='#000';cx.fillRect(0,0,W,H);if(vid.videoWidth){cx.save();cx.translate(W,0);cx.scale(-1,1);cx.drawImage(vid,W-vox-vdw,voy,vdw,vdh);cx.restore()}return}
+  if(!BEAR){cx.fillStyle='#000';cx.fillRect(0,0,W,H);if(vid.videoWidth){cx.save();cx.translate(W,0);cx.scale(-1,1);cx.filter=vFilter();cx.drawImage(vid,W-vox-vdw,voy,vdw,vdh);cx.filter='none';cx.restore()}return}
   const dt=Math.min(.05,(now-lastT)/1000||.016);lastT=now;
   const el=(now-t0)/1000;
   const seen=person&&now-lastSeen<1200&&(seenFrames>=4||SIM);
@@ -359,7 +361,7 @@ function frame(now){
   stepParts(dt);
   // render 2D + 3D
   cx.fillStyle='#000';cx.fillRect(0,0,W,H);
-  if(vid.videoWidth){cx.save();cx.translate(W,0);cx.scale(-1,1);cx.drawImage(vid,W-vox-vdw,voy,vdw,vdh);cx.restore()}
+  if(vid.videoWidth){cx.save();cx.translate(W,0);cx.scale(-1,1);cx.filter=vFilter();cx.drawImage(vid,W-vox-vdw,voy,vdw,vdh);cx.filter='none';cx.restore()}
   if(SIM)drawDummy();
   renderer.render(scene,cam);
   if(DBG)$('dbg').textContent=`seen=${!!seen} fb=${fallback} act=${act} u=${u.toFixed(2)} sc=${sc.toFixed(0)}`;
@@ -396,6 +398,51 @@ async function openCam(){
   vid.srcObject=stream;await vid.play();
   await new Promise(r=>{if(vid.videoWidth)r();else vid.onloadedmetadata=r});
   W=897;H=1198;resize();fitVid();
+  camDef=null;await applyCam();
+}
+/* ---- Ajustes de cámara (exposición) ---- */
+let CAMSET=(()=>{try{return JSON.parse(localStorage.getItem('cam')||'{}')}catch(e){return {}}})();
+const saveCam=()=>{try{localStorage.setItem('cam',JSON.stringify(CAMSET))}catch(e){}};
+function vFilter(){const b=CAMSET.sb==null?1:CAMSET.sb,c=CAMSET.sc==null?1:CAMSET.sc;return(b===1&&c===1)?'none':'brightness('+b+') contrast('+c+')'}
+const vtrack=()=>stream&&stream.getVideoTracks()[0];
+const tcaps=()=>{const t=vtrack();try{return t&&t.getCapabilities?t.getCapabilities():{}}catch(e){return {}}};
+let camDef=null;
+async function applyOne(o){const t=vtrack();if(!t)return false;try{await t.applyConstraints({advanced:[o]});return true}catch(e){return false}}
+async function applyCam(){
+  const t=vtrack();if(!t)return;const c=tcaps();
+  try{if(!camDef)camDef=t.getSettings()}catch(e){}
+  if(CAMSET.em&&c.exposureMode&&c.exposureMode.includes(CAMSET.em))await applyOne({exposureMode:CAMSET.em});
+  if(CAMSET.et!=null&&c.exposureTime)await applyOne({exposureTime:CAMSET.et});
+  if(CAMSET.ec!=null&&c.exposureCompensation)await applyOne({exposureCompensation:CAMSET.ec});
+  if(CAMSET.br!=null&&c.brightness)await applyOne({brightness:CAMSET.br});
+  if(CAMSET.ct!=null&&c.contrast)await applyOne({contrast:CAMSET.ct});
+}
+function buildCamPanel(){
+  const c=tcaps(),t=vtrack(),st=(()=>{try{return t.getSettings()}catch(e){return {}}})(),el=$('campan');
+  const has=k=>c[k]!=null&&(c[k].max!=null||Array.isArray(c[k]));
+  const row=(label,k,cap,def,hw)=>{const cur=CAMSET[k]!=null?CAMSET[k]:def;
+    return '<div style="margin:10px 0"><div style="display:flex;justify-content:space-between"><b>'+label+'</b><span id="v_'+k+'">'+(+cur).toFixed(2)+'</span></div><input data-k="'+k+'" data-hw="'+(hw?1:0)+'" type="range" min="'+cap.min+'" max="'+cap.max+'" step="'+(cap.step||0.01)+'" value="'+cur+'" style="width:100%;height:30px"></div>'};
+  let h='<div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:16px">Ajustes de cámara</b><button id="cpx" style="background:#fff2;color:#fff;border:0;border-radius:8px;padding:6px 12px;font-size:14px">Cerrar</button></div>';
+  h+='<div style="opacity:.8;margin-top:6px">Tu cámara permite: '+['exposureMode','exposureCompensation','exposureTime','brightness','contrast'].map(k=>(has(k)?'✓ ':'✗ ')+k).join(' · ')+'</div>';
+  if(has('exposureMode')&&c.exposureMode.length>1){const cur=CAMSET.em||st.exposureMode||'continuous';
+    h+='<div style="margin:10px 0"><b>Modo de exposición</b><br><select id="em" style="width:100%;height:34px;margin-top:4px">'+c.exposureMode.map(m=>'<option value="'+m+'"'+(m===cur?' selected':'')+'>'+m+'</option>').join('')+'</select></div>'}
+  if(has('exposureCompensation'))h+=row('Compensación de exposición (menos = más oscuro)','ec',c.exposureCompensation,st.exposureCompensation!=null?st.exposureCompensation:0,1);
+  if(has('exposureTime'))h+=row('Tiempo de exposición (modo manual)','et',c.exposureTime,st.exposureTime!=null?st.exposureTime:c.exposureTime.min,1);
+  if(has('brightness'))h+=row('Brillo de la cámara','br',c.brightness,st.brightness!=null?st.brightness:0,1);
+  if(has('contrast'))h+=row('Contraste de la cámara','ct',c.contrast,st.contrast!=null?st.contrast:0,1);
+  h+='<hr style="border:0;border-top:1px solid #fff3;margin:12px 0"><b>Corrección en la página</b>'+
+     row('Brillo (menos = más oscuro)','sb',{min:.5,max:1.2,step:.01},1,0)+row('Contraste','sc',{min:.8,max:1.5,step:.01},1,0)+
+     '<button id="cpr" style="margin-top:6px;background:#f2c142;color:#1c4069;border:0;border-radius:8px;padding:8px 14px;font-weight:700">Restablecer todo</button>';
+  el.innerHTML=h;
+  $('cpx').onclick=()=>{el.style.display='none'};
+  el.querySelectorAll('input[type=range]').forEach(i=>i.oninput=async()=>{const k=i.dataset.k,v=+i.value;CAMSET[k]=v;saveCam();$('v_'+k).textContent=v.toFixed(2);
+    if(i.dataset.hw==='1'){const map={ec:'exposureCompensation',et:'exposureTime',br:'brightness',ct:'contrast'};
+      if(k==='et'&&c.exposureMode&&c.exposureMode.includes('manual')){CAMSET.em='manual';saveCam();await applyOne({exposureMode:'manual'});const s=$('em');if(s)s.value='manual'}
+      await applyOne({[map[k]]:v})}});
+  const em=$('em');if(em)em.onchange=async()=>{CAMSET.em=em.value;saveCam();await applyOne({exposureMode:em.value})};
+  $('cpr').onclick=async()=>{CAMSET={};saveCam();if(c.exposureMode&&c.exposureMode.includes('continuous'))await applyOne({exposureMode:'continuous'});
+    if(camDef){for(const k of['exposureCompensation','brightness','contrast']){if(camDef[k]!=null&&c[k])await applyOne({[k]:camDef[k]})}}
+    buildCamPanel()};
 }
 let wl=null;
 async function landing(){
@@ -467,10 +514,11 @@ const FSE=document.documentElement,fsReq=FSE.requestFullscreen||FSE.webkitReques
 if(!fsReq)$('fsbtn').style.display='none';
 $('fsbtn').onclick=e=>{e.stopPropagation();const on=document.fullscreenElement||document.webkitFullscreenElement;
   try{on?fsExit.call(document):fsReq.call(FSE)}catch(_){}};
-const mdlUpd=()=>{$('mdl').textContent='Modelo '+M;$('mdl').style.display=(BEAR||!(state==='inicio'||state==='espera'))?'none':'block'};
+const mdlUpd=()=>{$('mdl').textContent='Modelo '+M;$('mdl').style.display=(BEAR||!(state==='inicio'||state==='espera'))?'none':'block';$('camb').style.display=(BEAR||state!=='espera')?'none':'block';if(state!=='espera')$('campan').style.display='none'};
 $('mdl').onclick=e=>{e.stopPropagation();M=M==='1'?'2':'1';try{localStorage.setItem('modelo',M)}catch(_){}
   if(M==='2')landing();else{stopTimer();SFX.music(false);clearTimers();stopCam(true);state='inicio';show('s-inicio')}mdlUpd()};
 setInterval(mdlUpd,300);mdlUpd();
+$('camb').onclick=e=>{e.stopPropagation();const pn=$('campan');if(pn.style.display==='block'){pn.style.display='none';return}buildCamPanel();pn.style.display='block'};
 $('start').onclick=startGame;
 $('shoot').onclick=e=>{e.stopPropagation();if(state==='espera')beginPlay();else shoot()};
 $('stage').addEventListener('pointerdown',()=>{if(state==='espera')beginPlay()});
